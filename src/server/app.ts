@@ -560,10 +560,6 @@ export function createApp() {
   // Next authoritative Pig ID Generator using atomic database sequence
   app.get('/api/swine-records/next-id', async (_req, res) => {
     try {
-      const currentYear = new Date().getFullYear();
-      const { total } = await getAllSwineRecords();
-      const nextSequence = String(total + 1).padStart(4, '0');
-      const nextPigId = `HIN-${currentYear}-${nextSequence}`;
       const nextPigId = await getNextAuthoritativePigIdTag();
       return res.json({ success: true, nextPigId });
     } catch (err: any) {
@@ -1103,7 +1099,6 @@ export function createApp() {
   // =========================================================================
   app.get('/api/farmers', async (req, res) => {
     const user = getUserSecurityContext(req);
-    const effectiveBarangay = user.isAdmin ? undefined : (user.assignedBarangay || user.barangayId);
     if (!user.isAuthenticated) {
       return res.status(401).json({ success: false, error: 'Authentication required to view farmer registry.' });
     }
@@ -2290,13 +2285,6 @@ export function createApp() {
     try {
       const entry = req.body;
       if (entry && entry.what) {
-        const currentLogs = (await getSystemSetting('master_config_audit_logs', [])) || [];
-        currentLogs.unshift({
-          ...entry,
-          id: entry.id || `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-          timestamp: entry.timestamp || new Date().toISOString(),
-        });
-        await setSystemSetting('master_config_audit_logs', currentLogs);
         const currentLogs = (await getSystemSetting<any[]>('master_config_audit_logs', [])) || [];
         const updatedLogs = [
           {
@@ -2311,7 +2299,6 @@ export function createApp() {
       }
       return res.json({ success: true });
     } catch {
-      return res.json({ success: false });
       return res.status(500).json({ success: false, error: 'Failed to record audit log.' });
     }
   });

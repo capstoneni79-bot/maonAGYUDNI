@@ -58,7 +58,6 @@ export async function getUserByAuthUserId(authUserId: string): Promise<UserAccou
 
 export async function upsertUser(user: Partial<UserAccount>): Promise<UserAccount> {
   try {
-    const uid = user.id || `usr-${Date.now()}`;
     const uid = (user as any).uid || (user.id && !UUID_REGEX.test(user.id) ? user.id : `usr-${Date.now()}`);
     const email = user.email || `${user.username || 'user'}@hinunangan.da.gov.ph`;
     
@@ -75,7 +74,6 @@ export async function upsertUser(user: Partial<UserAccount>): Promise<UserAccoun
     const authUserId = user.authUserId && UUID_REGEX.test(user.authUserId) ? user.authUserId : null;
 
     const values = {
-      id: user.authUserId || user.id,
       id: primaryId,
       uid,
       email,
@@ -83,7 +81,6 @@ export async function upsertUser(user: Partial<UserAccount>): Promise<UserAccoun
       role: user.role || 'focal',
       assignedBarangay: user.assignedBarangay || null,
       phone: user.phone || null,
-      authUserId: user.authUserId || null,
       authUserId,
       active: user.active ?? true,
       status: user.status || (user.active === false ? 'inactive' : 'active'),

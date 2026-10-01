@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { db } from './index.ts';
 import { db, pool } from './index.ts';
 import { swineRecords } from './schema.ts';
 import { eq, inArray, and, ilike, or, desc, sql } from 'drizzle-orm';
