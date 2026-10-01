@@ -23,7 +23,7 @@ export function getSupabaseAuthConfigStatus() {
 
 export function getSupabaseAdminConfigError(): string | null {
   const missing: string[] = [];
-  if (!serverUrl) missing.push('SUPABASE_URL');
+  if (!url) missing.push('SUPABASE_URL (or VITE_SUPABASE_URL)');
   if (!adminKey) missing.push('SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY)');
   return missing.length > 0
     ? `Supabase Auth administration is unavailable. Configure ${missing.join(' and ')} as server-side environment variables.`
@@ -34,8 +34,8 @@ export const supabaseAuthClient: SupabaseClient | null = url && anonKey
   ? createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } })
   : null;
 
-export const supabaseAdminClient: SupabaseClient | null = serverUrl && adminKey
-  ? createClient(serverUrl, adminKey, {
+export const supabaseAdminClient: SupabaseClient | null = url && adminKey
+  ? createClient(url, adminKey, {
       auth: {
         autoRefreshToken: false,
         persistSession: false,
