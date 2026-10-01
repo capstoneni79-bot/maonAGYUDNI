@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Users, Plus, Edit, Trash2, Save, X, Key, Shield, UserCheck, Search } from 'lucide-react';
+import { Users, Plus, Edit, Trash2, Save, X, Key, Shield, UserCheck, Search, Eye, EyeOff } from 'lucide-react';
 import { Barangay, UserAccount, UserRole } from '../../types';
 import { accountsApi } from '../../services/api';
 
@@ -26,9 +26,13 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
   const [active, setActive] = useState(true);
   const [initialPassword, setInitialPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showInitialPassword, setShowInitialPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [resetTarget, setResetTarget] = useState<UserAccount | null>(null);
   const [resetPassword, setResetPassword] = useState('');
   const [confirmResetPassword, setConfirmResetPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
   const [resetError, setResetError] = useState('');
   const [isResetting, setIsResetting] = useState(false);
 
@@ -48,6 +52,8 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
     setActive(u.active);
     setInitialPassword('');
     setConfirmPassword('');
+    setShowInitialPassword(false);
+    setShowConfirmPassword(false);
   };
 
   const startAddNew = () => {
@@ -62,6 +68,8 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
     setActive(true);
     setInitialPassword('');
     setConfirmPassword('');
+    setShowInitialPassword(false);
+    setShowConfirmPassword(false);
     setSaveError('');
   };
 
@@ -140,6 +148,8 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
       setResetTarget(null);
       setResetPassword('');
       setConfirmResetPassword('');
+      setShowNewPassword(false);
+      setShowConfirmNewPassword(false);
     } catch (error) {
       setResetError(error instanceof Error ? error.message : 'Unable to reset this account password.');
     } finally {
@@ -198,18 +208,30 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
         <form onSubmit={handleResetPassword} className="bg-white p-5 rounded-xl border border-amber-300 shadow-xs space-y-3">
           <div className="flex items-center justify-between gap-3">
             <h3 className="font-bold text-sm text-stone-900">Reset Password: {resetTarget.name}</h3>
-            <button type="button" onClick={() => { setResetTarget(null); setResetPassword(''); setConfirmResetPassword(''); setResetError(''); }} className="p-1.5 text-stone-500 hover:bg-stone-100 rounded-lg" aria-label="Cancel password reset">
+            <button type="button" onClick={() => { setResetTarget(null); setResetPassword(''); setConfirmResetPassword(''); setShowNewPassword(false); setShowConfirmNewPassword(false); setResetError(''); }} className="p-1.5 text-stone-500 hover:bg-stone-100 rounded-lg" aria-label="Cancel password reset">
               <X className="w-4 h-4" />
             </button>
           </div>
           {resetError && <p role="alert" className="text-xs text-red-700">{resetError}</p>}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="block font-semibold text-stone-700">New Password
-              <input type="password" required autoComplete="new-password" value={resetPassword} onChange={e => setResetPassword(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-300" />
-            </label>
-            <label className="block font-semibold text-stone-700">Confirm New Password
-              <input type="password" required autoComplete="new-password" value={confirmResetPassword} onChange={e => setConfirmResetPassword(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-300" />
-            </label>
+            <div>
+              <label htmlFor="reset-new-password" className="block font-semibold text-stone-700">New Password</label>
+              <div className="relative mt-1">
+                <input id="reset-new-password" type={showNewPassword ? 'text' : 'password'} required autoComplete="new-password" value={resetPassword} onChange={e => setResetPassword(e.target.value)} className="w-full px-3 pr-10 py-2 rounded-lg border border-stone-300" />
+                <button type="button" onClick={() => setShowNewPassword(value => !value)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-stone-500 hover:text-emerald-700 rounded-md" aria-label={showNewPassword ? 'Hide password' : 'Show password'} title={showNewPassword ? 'Hide password' : 'Show password'}>
+                  {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label htmlFor="reset-confirm-password" className="block font-semibold text-stone-700">Confirm New Password</label>
+              <div className="relative mt-1">
+                <input id="reset-confirm-password" type={showConfirmNewPassword ? 'text' : 'password'} required autoComplete="new-password" value={confirmResetPassword} onChange={e => setConfirmResetPassword(e.target.value)} className="w-full px-3 pr-10 py-2 rounded-lg border border-stone-300" />
+                <button type="button" onClick={() => setShowConfirmNewPassword(value => !value)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-stone-500 hover:text-emerald-700 rounded-md" aria-label={showConfirmNewPassword ? 'Hide password' : 'Show password'} title={showConfirmNewPassword ? 'Hide password' : 'Show password'}>
+                  {showConfirmNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
           </div>
           <p className="text-[11px] text-stone-500">At least 12 characters, including uppercase, lowercase, a number, and a symbol.</p>
           <div className="flex justify-end">
@@ -232,6 +254,8 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
                 setIsEditing(null);
                 setInitialPassword('');
                 setConfirmPassword('');
+                setShowInitialPassword(false);
+                setShowConfirmPassword(false);
               }}
               className="text-stone-400 hover:text-stone-700 cursor-pointer"
             >
@@ -278,12 +302,24 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
 
             {isAddingNew && (
               <>
-                <label className="block font-semibold text-stone-700">Initial Password *
-                  <input type="password" required autoComplete="new-password" value={initialPassword} onChange={e => setInitialPassword(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-300" />
-                </label>
-                <label className="block font-semibold text-stone-700">Confirm Password *
-                  <input type="password" required autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-300" />
-                </label>
+                <div>
+                  <label htmlFor="initial-password" className="block font-semibold text-stone-700">Initial Password *</label>
+                  <div className="relative mt-1">
+                    <input id="initial-password" type={showInitialPassword ? 'text' : 'password'} required autoComplete="new-password" value={initialPassword} onChange={e => setInitialPassword(e.target.value)} className="w-full px-3 pr-10 py-2 rounded-lg border border-stone-300" />
+                    <button type="button" onClick={() => setShowInitialPassword(value => !value)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-stone-500 hover:text-emerald-700 rounded-md" aria-label={showInitialPassword ? 'Hide password' : 'Show password'} title={showInitialPassword ? 'Hide password' : 'Show password'}>
+                      {showInitialPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label htmlFor="confirm-password" className="block font-semibold text-stone-700">Confirm Password *</label>
+                  <div className="relative mt-1">
+                    <input id="confirm-password" type={showConfirmPassword ? 'text' : 'password'} required autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full px-3 pr-10 py-2 rounded-lg border border-stone-300" />
+                    <button type="button" onClick={() => setShowConfirmPassword(value => !value)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-stone-500 hover:text-emerald-700 rounded-md" aria-label={showConfirmPassword ? 'Hide password' : 'Show password'} title={showConfirmPassword ? 'Hide password' : 'Show password'}>
+                      {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
                 <p className="sm:col-span-3 -mt-2 text-[11px] text-stone-500">At least 12 characters, including uppercase, lowercase, a number, and a symbol.</p>
               </>
             )}
@@ -356,6 +392,8 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
                 setIsEditing(null);
                 setInitialPassword('');
                 setConfirmPassword('');
+                setShowInitialPassword(false);
+                setShowConfirmPassword(false);
               }}
               className="px-4 py-2 rounded-xl border border-stone-300 hover:bg-stone-100 font-semibold text-stone-700 cursor-pointer"
             >
@@ -453,7 +491,7 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
                       {currentUser?.role === 'super_admin' && u.authUserId && (
                         <button
                           type="button"
-                          onClick={() => { setResetTarget(u); setResetPassword(''); setConfirmResetPassword(''); setResetError(''); }}
+                          onClick={() => { setResetTarget(u); setResetPassword(''); setConfirmResetPassword(''); setShowNewPassword(false); setShowConfirmNewPassword(false); setResetError(''); }}
                           className="p-1.5 rounded-lg text-amber-700 hover:bg-amber-100 transition cursor-pointer"
                           title="Reset Password"
                           aria-label={`Reset password for ${u.name}`}

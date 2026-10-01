@@ -99,13 +99,13 @@ VITE_SUPABASE_URL=https://[PROJECT_REF].supabase.co
 VITE_SUPABASE_ANON_KEY=[YOUR_SUPABASE_ANON_KEY]
 SUPABASE_URL=https://[PROJECT_REF].supabase.co
 SUPABASE_ANON_KEY=[YOUR_SUPABASE_ANON_KEY]
-SUPABASE_SERVICE_ROLE_KEY=[SERVER_ONLY_SERVICE_ROLE_KEY]
+SUPABASE_SECRET_KEY=[SERVER_ONLY_SUPABASE_SECRET_KEY]
 VITE_GOOGLE_MAPS_API_KEY=
 VITE_GOOGLE_MAPS_MAP_ID=DEMO_MAP_ID
 ```
 
 This project already reads the main database connection from `DATABASE_URL` in [src/db/index.ts](src/db/index.ts).
-For Super Admin login, `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` configure the browser session client. `SUPABASE_URL` and `SUPABASE_ANON_KEY` configure server-side password authentication. Set all four to the same Supabase project, and point `DATABASE_URL` to that project's database. The `/api/health` response exposes non-secret `supabase_auth_project_ref` and `database_project_ref` values for comparison. `SUPABASE_SERVICE_ROLE_KEY` is server-only and must never use a `VITE_` prefix.
+For Super Admin login, `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` configure the browser session client. `SUPABASE_URL` and `SUPABASE_ANON_KEY` configure server-side password authentication. Set all four to the same Supabase project, and point `DATABASE_URL` to that project's database. The `/api/health` response exposes non-secret `supabase_auth_project_ref` and `database_project_ref` values for comparison. Account creation, Auth administration, and server-side storage require `SUPABASE_URL` and server-only `SUPABASE_SECRET_KEY`. The legacy `SUPABASE_SERVICE_ROLE_KEY` is accepted as a fallback during migration. Never use a `VITE_` prefix for either secret variable.
 `SESSION_SECRET` signs 12-hour bearer sessions used by swine-record, schema, and synchronization APIs. Generate it with `openssl rand -hex 32`, then set the same high-entropy value for Production, Preview, and Development so sessions work across serverless instances. Do not commit the secret.
 
 ---
@@ -293,7 +293,7 @@ In Vercel Dashboard → **Settings** → **Environment Variables**, add the foll
 | `VITE_SUPABASE_ANON_KEY` | All | `eyJhbGci...` |
 | `SUPABASE_URL` | All | Same project URL as `VITE_SUPABASE_URL` |
 | `SUPABASE_ANON_KEY` | All | Same project's anon key as `VITE_SUPABASE_ANON_KEY` |
-| `SUPABASE_SERVICE_ROLE_KEY` | All | Server-only service-role key; never use a `VITE_` prefix |
+| `SUPABASE_SECRET_KEY` | All | Server-only Supabase secret key; never use a `VITE_` prefix (legacy `SUPABASE_SERVICE_ROLE_KEY` is accepted temporarily) |
 | `VITE_GOOGLE_MAPS_API_KEY` | All | *(Optional)* Live Google Maps key |
 | `VITE_GOOGLE_MAPS_MAP_ID` | All | `DEMO_MAP_ID` |
 

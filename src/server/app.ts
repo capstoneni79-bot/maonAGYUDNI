@@ -34,7 +34,7 @@ import { INITIAL_LANDING_CMS_CONFIG } from '../data/initialLandingCmsData.ts';
 import { uploadLandingCmsAsset } from './supabaseStorage.ts';
 import { interpretSuperAdminConfigCommand } from '../utils/configCommandInterpreter.ts';
 import { isValidPhilippinePhoneNumber, normalizePhilippinePhoneNumber, toFieldKey } from '../utils/registryFieldUtils.ts';
-import { getSupabaseAuthConfigStatus, supabaseAdminClient, supabaseAuthClient, supabaseAuthProjectRef } from '../lib/supabaseServer.ts';
+import { getSupabaseAdminConfigError, getSupabaseAuthConfigStatus, supabaseAdminClient, supabaseAuthClient, supabaseAuthProjectRef } from '../lib/supabaseServer.ts';
 
 export function createApp() {
   const app = express();
@@ -549,7 +549,7 @@ export function createApp() {
   });
 
   const inviteAuthUser = async (email: string, metadata: Record<string, unknown>) => {
-    if (!supabaseAdminClient) throw new Error('SUPABASE_SERVICE_ROLE_KEY is required for account invitations.');
+    if (!supabaseAdminClient) throw new Error(getSupabaseAdminConfigError() || 'Supabase Auth administration is unavailable.');
     const { data: usersPage, error: listError } = await supabaseAdminClient.auth.admin.listUsers({ page: 1, perPage: 1000 });
     if (listError) throw listError;
     const existingAuthUser = (usersPage.users as Array<{ id: string; email?: string | null }>)
@@ -606,7 +606,7 @@ export function createApp() {
     }
     if (!supabaseAdminClient) {
       console.error('[ACCOUNTS] supabase_admin_client_unavailable');
-      return res.status(503).json({ success: false, error: 'Supabase Auth administration is not configured.' });
+      return res.status(503).json({ success: false, error: getSupabaseAdminConfigError() });
     }
 
     let createdAuthUserId: string | null = null;
@@ -681,7 +681,7 @@ export function createApp() {
       return res.status(403).json({ success: false, error: 'Only an authenticated Super Admin can reset account passwords.' });
     }
     if (!supabaseAdminClient) {
-      return res.status(503).json({ success: false, error: 'Supabase Auth administration is not configured.' });
+      return res.status(503).json({ success: false, error: getSupabaseAdminConfigError() });
     }
 
     const password = typeof req.body?.initialPassword === 'string' ? req.body.initialPassword : '';
@@ -737,7 +737,7 @@ export function createApp() {
           full_name: payload.name || payload.fullName || current.name,
         });
       } else if (payload.email && payload.email.toLowerCase() !== current.email.toLowerCase()) {
-        if (!supabaseAdminClient) return res.status(503).json({ success: false, error: 'Supabase Auth administration is not configured.' });
+        if (!supabaseAdminClient) return res.status(503).json({ success: false, error: getSupabaseAdminConfigError() });
         const { error } = await supabaseAdminClient.auth.admin.updateUserById(current.authUserId, { email: payload.email });
         if (error) throw error;
       }
@@ -763,7 +763,10 @@ export function createApp() {
       if (target?.role === 'super_admin' && !admin.isSuperAdmin) {
         return res.status(403).json({ success: false, error: 'Only a Super Admin can remove a Super Admin account.' });
       }
-      if (target?.authUserId && supabaseAdminClient) {
+      if (target?.authUserId) {
+        if (!supabaseAdminClient) {
+          return res.status(503).json({ success: false, error: getSupabaseAdminConfigError() });
+        }
         const { error } = await supabaseAdminClient.auth.admin.deleteUser(target.authUserId);
         if (error) throw error;
       }

@@ -14,9 +14,9 @@ export async function uploadLandingCmsAsset(
   category: string
 ): Promise<LandingUploadResult> {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error('Server-side Supabase Storage is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.');
+    const adminKey = process.env.SUPABASE_SECRET_KEY?.trim() || process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    if (!supabaseUrl || !adminKey) {
+      throw new Error('Server-side Supabase Storage is unavailable. Set SUPABASE_URL and SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY) as server-side environment variables.');
   }
 
   const match = base64Payload.match(/^data:[^;]+;base64,(.*)$/s);
@@ -26,8 +26,8 @@ export async function uploadLandingCmsAsset(
     throw new Error('The uploaded image is empty or exceeds the 15 MB limit.');
   }
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
+    const supabase = createClient(supabaseUrl, adminKey, {
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
   });
   const bucket = process.env.SUPABASE_LANDING_MEDIA_BUCKET || 'landing-page-media';
   const buckets = await supabase.storage.listBuckets();
@@ -54,11 +54,13 @@ export async function uploadLandingCmsAsset(
 
 export async function deleteLandingCmsAsset(filePath: string): Promise<void> {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceRoleKey) return;
+    const adminKey = process.env.SUPABASE_SECRET_KEY?.trim() || process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    if (!supabaseUrl || !adminKey) {
+      throw new Error('Server-side Supabase Storage is unavailable. Set SUPABASE_URL and SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY) as server-side environment variables.');
+    }
   const bucket = process.env.SUPABASE_LANDING_MEDIA_BUCKET || 'landing-page-media';
-  const supabase = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
+    const supabase = createClient(supabaseUrl, adminKey, {
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
   });
   const result = await supabase.storage.from(bucket).remove([filePath]);
   if (result.error) console.error('Failed to clean up Supabase Storage object:', result.error.message);
