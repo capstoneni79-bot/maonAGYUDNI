@@ -97,11 +97,15 @@ SQL_SSL=true
 NODE_ENV=production
 VITE_SUPABASE_URL=https://[PROJECT_REF].supabase.co
 VITE_SUPABASE_ANON_KEY=[YOUR_SUPABASE_ANON_KEY]
+SUPABASE_URL=https://[PROJECT_REF].supabase.co
+SUPABASE_ANON_KEY=[YOUR_SUPABASE_ANON_KEY]
+SUPABASE_SERVICE_ROLE_KEY=[SERVER_ONLY_SERVICE_ROLE_KEY]
 VITE_GOOGLE_MAPS_API_KEY=
 VITE_GOOGLE_MAPS_MAP_ID=DEMO_MAP_ID
 ```
 
 This project already reads the main database connection from `DATABASE_URL` in [src/db/index.ts](src/db/index.ts).
+For Super Admin login, `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` configure the browser session client. `SUPABASE_URL` and `SUPABASE_ANON_KEY` configure server-side password authentication. Set all four to the same Supabase project, and point `DATABASE_URL` to that project's database. The `/api/health` response exposes non-secret `supabase_auth_project_ref` and `database_project_ref` values for comparison. `SUPABASE_SERVICE_ROLE_KEY` is server-only and must never use a `VITE_` prefix.
 `SESSION_SECRET` signs 12-hour bearer sessions used by swine-record, schema, and synchronization APIs. Generate it with `openssl rand -hex 32`, then set the same high-entropy value for Production, Preview, and Development so sessions work across serverless instances. Do not commit the secret.
 
 ---
@@ -190,8 +194,9 @@ Once this is connected, every push to GitHub can trigger a Vercel deployment aut
 - [ ] Supabase database URL copied
 - [ ] Vercel project connected to GitHub
 - [ ] `DATABASE_URL` added in Vercel
-- [ ] `VITE_SUPABASE_URL` added in Vercel
-- [ ] `VITE_SUPABASE_ANON_KEY` added in Vercel
+- [ ] `VITE_SUPABASE_URL` and `SUPABASE_URL` point to the same project
+- [ ] `VITE_SUPABASE_ANON_KEY` and `SUPABASE_ANON_KEY` use that project's anon key
+- [ ] `DATABASE_URL` points to that same Supabase project
 - [ ] app deployed successfully
 - [ ] `/api/health` returns `status: ok`
 
@@ -232,18 +237,10 @@ CREATE TABLE IF NOT EXISTS public.audit_logs (
 CREATE INDEX IF NOT EXISTS idx_audit_entity ON public.audit_logs(entity, entity_id);
 
 -- ============================================================================
--- 9. DEFAULT ADMINISTRATOR SEED
+-- 9. AUTHENTICATED ADMINISTRATOR PROVISIONING
 -- ============================================================================
-INSERT INTO public.users (uid, email, name, role, phone, password)
-VALUES (
-  'usr-admin-1',
-  'admin@hinunangan.da.gov.ph',
-  'Engr. Arnel M. Vasquez',
-  'admin',
-  '0917-888-9999',
-  'admin'
-)
-ON CONFLICT (uid) DO NOTHING;
+-- Create administrator credentials in Supabase Auth, then add a profile
+-- linked by auth_user_id. Never store an Auth password in public.users.
 ```
 
 4. Click **Run** (or press `Ctrl+Enter`). Verify `Success. No rows returned`.
@@ -294,6 +291,9 @@ In Vercel Dashboard → **Settings** → **Environment Variables**, add the foll
 | `NODE_ENV` | All | `production` |
 | `VITE_SUPABASE_URL` | All | `https://[PROJECT-REF].supabase.co` |
 | `VITE_SUPABASE_ANON_KEY` | All | `eyJhbGci...` |
+| `SUPABASE_URL` | All | Same project URL as `VITE_SUPABASE_URL` |
+| `SUPABASE_ANON_KEY` | All | Same project's anon key as `VITE_SUPABASE_ANON_KEY` |
+| `SUPABASE_SERVICE_ROLE_KEY` | All | Server-only service-role key; never use a `VITE_` prefix |
 | `VITE_GOOGLE_MAPS_API_KEY` | All | *(Optional)* Live Google Maps key |
 | `VITE_GOOGLE_MAPS_MAP_ID` | All | `DEMO_MAP_ID` |
 

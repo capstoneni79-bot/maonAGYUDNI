@@ -10,7 +10,7 @@ import {
 } from '../types.ts';
 import type { LandingCmsConfig } from '../types/landingCms.ts';
 import { storageService } from './storageService.ts';
-import { supabase } from '../lib/supabase.ts';
+import { supabase, supabaseProjectRef } from '../lib/supabase.ts';
 
 supabase?.auth.onAuthStateChange((_event, session) => {
   storageService.setSessionToken(session?.access_token || null);
@@ -43,37 +43,45 @@ function getAuthHeaders(): Record<string, string> {
   return headers;
 }
 
-export const authApi = {
-  async login(username: string, password: string): Promise<{ user: UserAccount; role: string; assignedBarangay?: string; token: string }> {
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-    });
+async function loginAt(endpoint: string, identifier: string, password: string): Promise<{ user: UserAccount; role: string; assignedBarangay?: string; token: string }> {
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: identifier, email: identifier, password, clientProjectRef: supabaseProjectRef }),
+  });
 
-    const data = await res.json().catch(() => ({ success: false, error: 'Network error or server unavailable.' }));
-    if (!res.ok || !data.success) {
-      throw new Error(data.error || 'Invalid credentials or login failed.');
-    }
-    if (!data.token || typeof data.token !== 'string') {
-      throw new Error('Authentication service returned no session token.');
-    }
-    if (!supabase || !data.refreshToken) {
-      throw new Error('Supabase Auth client is not configured for session persistence.');
-    }
-    const { error: sessionError } = await supabase.auth.setSession({
-      access_token: data.token,
-      refresh_token: data.refreshToken,
-    });
-    if (sessionError) throw sessionError;
-    storageService.setSessionToken(data.token);
-    try {
-      await storageService.refreshRegistryFormSchemaFromCloud();
-    } catch (error) {
-      storageService.setSessionToken(null);
-      throw error;
-    }
-    return { user: data.user, role: data.role, assignedBarangay: data.assignedBarangay, token: data.token };
+  const data = await res.json().catch(() => ({ success: false, error: 'Network error or server unavailable.' }));
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Invalid credentials or login failed.');
+  }
+  if (!data.token || typeof data.token !== 'string') {
+    throw new Error('Authentication service returned no session token.');
+  }
+  if (!supabase || !data.refreshToken) {
+    throw new Error('Supabase Auth client is not configured for session persistence.');
+  }
+  const { error: sessionError } = await supabase.auth.setSession({
+    access_token: data.token,
+    refresh_token: data.refreshToken,
+  });
+  if (sessionError) throw sessionError;
+  storageService.setSessionToken(data.token);
+  try {
+    await storageService.refreshRegistryFormSchemaFromCloud();
+  } catch (error) {
+    storageService.setSessionToken(null);
+    throw error;
+  }
+  return { user: data.user, role: data.role, assignedBarangay: data.assignedBarangay, token: data.token };
+}
+
+export const authApi = {
+  login(username: string, password: string) {
+    return loginAt('/api/auth/login', username, password);
+  },
+
+  superAdminLogin(email: string, password: string) {
+    return loginAt('/api/auth/superadmin-login', email, password);
   },
 
   async restoreSession(): Promise<UserAccount | null> {
@@ -308,6 +316,19 @@ export const certificatesApi = {
     const data = await res.json().catch(() => null);
     if (!res.ok || !data?.success) {
       throw new Error(data?.error || 'Unable to save certificate to database.');
+    }
+    return data.data;
+  },
+
+  async update(id: string, cert: Partial<IssuedCertificate>): Promise<IssuedCertificate> {
+    const res = await fetch(`/api/certificates/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(cert),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.success) {
+      throw new Error(data?.error || 'Unable to update certificate in database.');
     }
     return data.data;
   },

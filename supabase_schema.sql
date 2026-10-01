@@ -8,7 +8,6 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 2. Users Table (System Roles: admin, focal, public)
 CREATE TABLE IF NOT EXISTS users (
-  id SERIAL PRIMARY KEY,
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   uid TEXT NOT NULL UNIQUE,
   email TEXT NOT NULL,
@@ -16,7 +15,6 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT NOT NULL DEFAULT 'focal',
   assigned_barangay TEXT,
   phone TEXT,
-  password TEXT,
   auth_user_id UUID UNIQUE,
   active BOOLEAN NOT NULL DEFAULT TRUE,
   permissions JSONB NOT NULL DEFAULT '[]'::jsonb,

@@ -32,23 +32,18 @@ export async function getAllUsers(): Promise<UserAccount[]> {
 }
 
 export async function getUserByUsernameOrEmail(identifier: string): Promise<UserAccount | null> {
-  try {
-    const rows = await db
-      .select()
-      .from(users)
-      .where(or(eq(users.email, identifier), eq(users.uid, identifier)))
-      .limit(1);
+  const rows = await db
+    .select()
+    .from(users)
+    .where(or(eq(users.email, identifier), eq(users.uid, identifier)))
+    .limit(1);
 
-    if (rows.length > 0) {
-      return mapDbToUser(rows[0]);
-    }
-    // Also check if identifier matches prefix of email
-    const all = await getAllUsers();
-    return all.find(u => u.username === identifier || u.email.toLowerCase() === identifier.toLowerCase()) || null;
-  } catch (err) {
-    console.error('Database query error for getUserByUsernameOrEmail:', err);
-    return null;
+  if (rows.length > 0) {
+    return mapDbToUser(rows[0]);
   }
+  // Also check if identifier matches prefix of email
+  const all = await getAllUsers();
+  return all.find(u => u.username === identifier || u.email.toLowerCase() === identifier.toLowerCase()) || null;
 }
 
 export async function getUserByAuthUserId(authUserId: string): Promise<UserAccount | null> {

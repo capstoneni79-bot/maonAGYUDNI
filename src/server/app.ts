@@ -34,7 +34,7 @@ import { INITIAL_LANDING_CMS_CONFIG } from '../data/initialLandingCmsData.ts';
 import { uploadLandingCmsAsset } from './supabaseStorage.ts';
 import { interpretSuperAdminConfigCommand } from '../utils/configCommandInterpreter.ts';
 import { isValidPhilippinePhoneNumber, normalizePhilippinePhoneNumber, toFieldKey } from '../utils/registryFieldUtils.ts';
-import { supabaseAdminClient, supabaseAuthClient } from '../lib/supabaseServer.ts';
+import { getSupabaseAuthConfigStatus, supabaseAdminClient, supabaseAuthClient, supabaseAuthProjectRef } from '../lib/supabaseServer.ts';
 
 export function createApp() {
   const app = express();
@@ -48,6 +48,22 @@ export function createApp() {
     barangayId: string;
     permissions: string[];
     active: boolean;
+  };
+
+  const getConfiguredDatabaseProjectRef = (): string | null => {
+    const connectionString =
+      process.env.DATABASE_URL?.trim() ||
+      process.env.SUPABASE_DATABASE_URL?.trim() ||
+      process.env.POSTGRES_URL?.trim();
+    if (!connectionString) return null;
+    try {
+      const parsed = new URL(connectionString);
+      const directHostRef = parsed.hostname.match(/^db\.([^.]+)\.supabase\.co$/i)?.[1];
+      const usernameRef = decodeURIComponent(parsed.username).match(/^postgres\.([^.]+)$/i)?.[1];
+      return directHostRef || usernameRef || null;
+    } catch {
+      return null;
+    }
   };
 
   const uuidForSyncOperation = (operationId: string): string => {
@@ -211,6 +227,8 @@ export function createApp() {
         process.env.POSTGRES_URL?.trim() ||
         process.env.SQL_HOST?.trim()
       ),
+      supabase_auth_project_ref: supabaseAuthProjectRef,
+      database_project_ref: getConfiguredDatabaseProjectRef(),
       ...(databaseErrorCode ? { database_error_code: databaseErrorCode } : {}),
       ...(databaseErrorKind ? { database_error_kind: databaseErrorKind } : {}),
       swine_records_count: recordsCount,
@@ -245,50 +263,119 @@ export function createApp() {
   // =========================================================================
 
   // Login endpoint
-  app.post('/api/auth/login', async (req, res) => {
-    const { username, password } = req.body || {};
-    if (!username || !password) {
-      return res.status(400).json({ success: false, error: 'Username and password are required.' });
+  const handleLogin = (requiredRole?: string) => async (req: express.Request, res: express.Response) => {
+    const { username, email, password, clientProjectRef } = req.body || {};
+    const identifier = String(email || username || '').trim();
+    if (!identifier || typeof password !== 'string' || !password) {
+      return res.status(400).json({ success: false, error: 'Email and password are required.' });
     }
-    if (!supabaseAuthClient) {
+    if (requiredRole && !identifier.includes('@')) {
+      return res.status(400).json({ success: false, error: 'Enter the Super Admin email address.' });
+    }
+
+    const authConfig = getSupabaseAuthConfigStatus();
+    if (!supabaseAuthClient || !authConfig.projectRef) {
+      console.error('[AUTH] supabase_configuration_missing', {
+        hasUrl: authConfig.hasUrl,
+        hasAnonKey: authConfig.hasAnonKey,
+      });
       return res.status(503).json({ success: false, error: 'Supabase Auth is not configured on the server.' });
     }
-
-    try {
-      const user = await getUserByUsernameOrEmail(username.trim());
-      if (!user || !user.authUserId) {
-        return res.status(401).json({ success: false, error: 'Invalid username or password.' });
-      }
-
-      if (!user.active || user.status !== 'active') {
-        return res.status(403).json({ success: false, error: 'This account has been deactivated.' });
-      }
-
-      if (!['super_admin', 'admin', 'focal', 'agent'].includes(user.role)) {
-        return res.status(403).json({ success: false, error: 'This account does not have an authorized application role.' });
-      }
-
-      const { data, error } = await supabaseAuthClient.auth.signInWithPassword({
-        email: user.email,
-        password: String(password),
-      });
-      if (error || !data.session) {
-        return res.status(401).json({ success: false, error: error?.message || 'Invalid Supabase Auth credentials.' });
-      }
-
-      return res.json({
-        success: true,
-        user,
-        token: data.session.access_token,
-        refreshToken: data.session.refresh_token,
-        role: user.role,
-        assignedBarangay: user.assignedBarangay,
-      });
-    } catch (err: any) {
-      console.error('Error during login authentication:', err);
-      return res.status(500).json({ success: false, error: err?.message || 'Supabase Auth service unavailable.' });
+    if (typeof clientProjectRef !== 'string' || !clientProjectRef) {
+      console.error('[AUTH] browser_supabase_configuration_missing');
+      return res.status(503).json({ success: false, error: 'Supabase Auth is not configured in this deployment build.' });
     }
-  });
+    if (clientProjectRef.toLowerCase() !== authConfig.projectRef.toLowerCase()) {
+      console.error('[AUTH] supabase_project_mismatch', {
+        browserProjectRef: clientProjectRef,
+        serverProjectRef: authConfig.projectRef,
+      });
+      return res.status(503).json({ success: false, error: 'The application and authentication service use different Supabase projects.' });
+    }
+
+    let authEmail = identifier.toLowerCase();
+    if (!authEmail.includes('@')) {
+      try {
+        const aliasProfile = await getUserByUsernameOrEmail(identifier);
+        if (!aliasProfile?.email) {
+          console.warn('[AUTH] login_alias_not_found');
+          return res.status(401).json({ success: false, error: 'Invalid email or password.' });
+        }
+        authEmail = aliasProfile.email.toLowerCase();
+      } catch (error: any) {
+        console.error('[AUTH] login_alias_database_query_failed', {
+          code: getDatabaseErrorCode(error),
+        });
+        return res.status(503).json({ success: false, error: 'Unable to look up this login. Please try again later.' });
+      }
+    }
+
+    let authData: any;
+    try {
+      const result = await supabaseAuthClient.auth.signInWithPassword({ email: authEmail, password });
+      if (result.error || !result.data.user || !result.data.session) {
+        console.warn('[AUTH] supabase_authentication_failed', {
+          code: result.error?.code || 'no_session',
+          status: result.error?.status,
+        });
+        return res.status(401).json({ success: false, error: 'Invalid email or password.' });
+      }
+      authData = result.data;
+    } catch (error: any) {
+      console.error('[AUTH] supabase_authentication_request_failed', {
+        name: error?.name,
+        code: error?.code,
+        status: error?.status,
+      });
+      return res.status(503).json({ success: false, error: 'Supabase Auth is temporarily unavailable.' });
+    }
+
+    let user: Awaited<ReturnType<typeof getUserByAuthUserId>>;
+    try {
+      user = await getUserByAuthUserId(authData.user.id);
+    } catch (error: any) {
+      console.error('[AUTH] application_profile_database_query_failed', {
+        authUserId: authData.user.id,
+        code: getDatabaseErrorCode(error),
+      });
+      return res.status(503).json({ success: false, error: 'Unable to verify the application account right now.' });
+    }
+    if (!user) {
+      console.warn('[AUTH] application_profile_not_found', { authUserId: authData.user.id });
+      return res.status(403).json({ success: false, error: 'No application profile is linked to this Supabase account.' });
+    }
+    if (!user.active || user.status !== 'active') {
+      console.warn('[AUTH] application_profile_inactive', { authUserId: authData.user.id });
+      return res.status(403).json({ success: false, error: 'This application account is inactive.' });
+    }
+    if (!['super_admin', 'admin', 'focal', 'agent'].includes(user.role)) {
+      console.warn('[AUTH] application_profile_role_invalid', { authUserId: authData.user.id, role: user.role });
+      return res.status(403).json({ success: false, error: 'This account does not have an authorized application role.' });
+    }
+    if (requiredRole && user.role !== requiredRole) {
+      console.warn('[AUTH] application_profile_role_mismatch', {
+        authUserId: authData.user.id,
+        actualRole: user.role,
+        requiredRole,
+      });
+      return res.status(403).json({ success: false, error: 'This account does not have Super Administrator privileges.' });
+    }
+    if (!requiredRole && user.role === 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Super Admin accounts must use the restricted Super Admin Gateway.' });
+    }
+
+    return res.json({
+      success: true,
+      user,
+      token: authData.session.access_token,
+      refreshToken: authData.session.refresh_token,
+      role: user.role,
+      assignedBarangay: user.assignedBarangay,
+    });
+  };
+
+  app.post('/api/auth/login', handleLogin());
+  app.post('/api/auth/superadmin-login', handleLogin('super_admin'));
 
   app.get('/api/auth/profile', async (req, res) => {
     const authenticated = getUserSecurityContext(req);

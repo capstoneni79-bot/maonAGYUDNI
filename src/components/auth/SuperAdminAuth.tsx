@@ -46,7 +46,7 @@ export const SuperAdminAuth: React.FC<SuperAdminAuthProps> = ({
     setIsLoading(true);
 
     try {
-      const result = await authApi.login(usernameOrEmail.trim(), password);
+      const result = await authApi.superAdminLogin(usernameOrEmail.trim(), password);
       if (result.role !== 'super_admin' || result.user.role !== 'super_admin') {
         setErrorMsg('Access Denied: This account does not possess Super Administrator privileges.');
         return;
@@ -115,17 +115,17 @@ export const SuperAdminAuth: React.FC<SuperAdminAuthProps> = ({
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-[11px] font-bold text-stone-300 uppercase tracking-wider mb-1.5">
-                Super Admin Account / Email
+                Super Admin Email
               </label>
               <div className="relative">
                 <User className="w-4 h-4 absolute left-3.5 top-3 text-stone-500" />
                 <input
-                  type="text"
+                  type="email"
                   required
                   autoFocus
                   value={usernameOrEmail}
                   onChange={e => setUsernameOrEmail(e.target.value)}
-                  placeholder="e.g. superadmin"
+                  placeholder="superadmin@example.com"
                   className="w-full pl-10 pr-3 py-2.5 rounded-xl bg-stone-950/80 border border-stone-700 text-white placeholder:text-stone-600 text-xs font-mono focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 outline-hidden transition"
                 />
               </div>
@@ -133,7 +133,7 @@ export const SuperAdminAuth: React.FC<SuperAdminAuthProps> = ({
 
             <div>
               <label className="block text-[11px] font-bold text-stone-300 uppercase tracking-wider mb-1.5">
-                Master Security Password
+                Supabase Auth Password
               </label>
               <div className="relative">
                 <Lock className="w-4 h-4 absolute left-3.5 top-3 text-stone-500" />
@@ -142,7 +142,7 @@ export const SuperAdminAuth: React.FC<SuperAdminAuthProps> = ({
                   required
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  placeholder="Enter master password"
+                  placeholder="Enter your Supabase Auth password"
                   className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-stone-950/80 border border-stone-700 text-white placeholder:text-stone-600 text-xs font-mono focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 outline-hidden transition"
                 />
                 <button
@@ -163,7 +163,7 @@ export const SuperAdminAuth: React.FC<SuperAdminAuthProps> = ({
                   onChange={e => setRememberMe(e.target.checked)}
                   className="rounded border-stone-700 bg-stone-950 text-rose-600 focus:ring-rose-500 accent-rose-600"
                 />
-                <span className="text-[11px]">Remember master session</span>
+                <span className="text-[11px]">Remember session</span>
               </label>
             </div>
 
