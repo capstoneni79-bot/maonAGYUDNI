@@ -987,33 +987,9 @@ export async function getSwineRecordById(
   id: string
 ): Promise<SwineRecord | null> {
   try {
-    const rows =
-      await db
-        .select()
-        .from(swineRecords)
-        .where(
-          or(
-            eq(
-              swineRecords.id,
-              id
-            ),
-            eq(
-              swineRecords.pigIdTag,
-              id
-            ),
-            eq(
-              swineRecords.computedPigId,
-              id
-            )
-          )
-        )
-        .limit(1);
     const trimmedId = (id || '').trim();
     if (!trimmedId) return null;
 
-    if (
-      rows.length === 0
-    ) {
     const queryConditions = [
       eq(swineRecords.pigIdTag, trimmedId),
       eq(swineRecords.computedPigId, trimmedId),
@@ -1034,9 +1010,6 @@ export async function getSwineRecordById(
       return null;
     }
 
-    return mapDbToSwine(
-      rows[0]
-    );
     return mapDbToSwine(rows[0]);
   } catch (error: any) {
     throw createDatabaseError(
@@ -1389,16 +1362,10 @@ export async function deleteSwineRecordsByIds(
   ids: string[]
 ): Promise<number> {
   try {
-    if (
-      !ids ||
-      ids.length === 0
-    ) {
     if (!ids || ids.length === 0) {
       return 0;
     }
 
-    const result =
-      await db
     const validUuids = ids.map(i => (i || '').trim()).filter(i => UUID_REGEX.test(i));
     const nonUuids = ids.map(i => (i || '').trim()).filter(i => i && !UUID_REGEX.test(i));
 
@@ -1416,24 +1383,16 @@ export async function deleteSwineRecordsByIds(
       const result = await db
         .delete(swineRecords)
         .where(
-          inArray(
-            swineRecords.id,
-            ids
           or(
             inArray(swineRecords.pigIdTag, nonUuids),
             inArray(swineRecords.computedPigId, nonUuids),
             inArray(swineRecords.earTagNo, nonUuids)
           )
         )
-        .returning({
-          id:
-            swineRecords.id,
-        });
         .returning({ id: swineRecords.id });
       totalDeleted += result.length;
     }
 
-    return result.length;
     return totalDeleted;
   } catch (error: any) {
     throw createDatabaseError(

@@ -134,16 +134,8 @@ export function createApp() {
 
     const authorization = req.headers.authorization || '';
     const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
-    if (!token || !supabaseAuthClient) {
-      return res.status(401).json({ success: false, error: 'Supabase Auth session required.' });
-
-    // If it's a public route and no token was provided, proceed as guest
-    if (isPublicRoute && !token) {
-      return next();
-    }
-
-    // Protected API route requires a token
     if (!token) {
+      if (isPublicRoute) return next();
       return res.status(401).json({ success: false, error: 'Authentication required. Please sign in to access this resource.' });
     }
 
@@ -1456,11 +1448,9 @@ export function createApp() {
     }
 
     const { connectionString } = req.body || {};
-    if (!connectionString) {
     if (!connectionString || typeof connectionString !== 'string') {
       return res.status(400).json({ success: false, error: 'Connection string is required.' });
     }
-    const result = await testDatabaseConnection(connectionString.trim());
 
     const trimmedUri = connectionString.trim();
     try {
@@ -1487,11 +1477,9 @@ export function createApp() {
     }
 
     const { connectionString } = req.body || {};
-    if (!connectionString) {
     if (!connectionString || typeof connectionString !== 'string') {
       return res.status(400).json({ success: false, error: 'Connection string is required.' });
     }
-    const result = await updateDatabaseConnection(connectionString.trim());
 
     const trimmedUri = connectionString.trim();
     try {
@@ -1829,7 +1817,6 @@ export function createApp() {
     const { fileName, fileUrl, base64, mimeType, fileSize, category, altText } = req.body || {};
 
     const resolvedUrl = fileUrl || base64;
-    if (!resolvedUrl) {
     if (!resolvedUrl || typeof resolvedUrl !== 'string') {
       return res.status(400).json({ success: false, error: 'Image fileUrl or base64 payload is required.' });
     }
@@ -1850,15 +1837,11 @@ export function createApp() {
 
     try {
       const item = await insertMedia({
-        fileName: fileName || `media-${Date.now()}`,
         fileName: sanitizedFileName,
         fileUrl: resolvedUrl,
-        mimeType: mimeType || 'image/jpeg',
-        fileSize: fileSize || (typeof resolvedUrl === 'string' ? resolvedUrl.length : 0),
         mimeType: safeMime,
         fileSize: fileSize || approximateBytes,
         category: category || 'OTHER',
-        altText: altText || fileName || 'Uploaded media asset',
         altText: altText || sanitizedFileName || 'Uploaded media asset',
         uploadedBy: user.username,
       });
@@ -1872,14 +1855,12 @@ export function createApp() {
 
   app.post('/api/media', async (req, res) => {
     const user = getUserSecurityContext(req);
-    const { fileName, fileUrl, base64, category, altText } = req.body || {};
     if (!user.isAuthenticated) {
       return res.status(401).json({ success: false, error: 'Authentication required to upload media.' });
     }
 
     const { fileName, fileUrl, base64, mimeType, fileSize, category, altText } = req.body || {};
     const resolvedUrl = fileUrl || base64;
-    if (!resolvedUrl) {
     if (!resolvedUrl || typeof resolvedUrl !== 'string') {
       return res.status(400).json({ success: false, error: 'fileUrl or base64 is required.' });
     }
@@ -1898,11 +1879,11 @@ export function createApp() {
 
     try {
       const item = await insertMedia({
-        fileName: fileName || `media-${Date.now()}`,
         fileName: sanitizedFileName,
         fileUrl: resolvedUrl,
+        mimeType: safeMime,
+        fileSize: fileSize || approximateBytes,
         category: category || 'OTHER',
-        altText: altText || fileName,
         altText: altText || sanitizedFileName,
         uploadedBy: user.username,
       });
