@@ -24,6 +24,13 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
   const [assignedBarangay, setAssignedBarangay] = useState(barangays[0]?.name || 'Poblacion');
   const [contactNo, setContactNo] = useState('');
   const [active, setActive] = useState(true);
+  const [initialPassword, setInitialPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [resetTarget, setResetTarget] = useState<UserAccount | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [confirmResetPassword, setConfirmResetPassword] = useState('');
+  const [resetError, setResetError] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
 
   const startEdit = (u: UserAccount) => {
     if (u.role === 'super_admin' && currentUser?.role !== 'super_admin') {
@@ -39,6 +46,8 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
     setAssignedBarangay(u.assignedBarangay || barangays[0]?.name || 'Poblacion');
     setContactNo(u.contactNo || '');
     setActive(u.active);
+    setInitialPassword('');
+    setConfirmPassword('');
   };
 
   const startAddNew = () => {
@@ -51,6 +60,9 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
     setAssignedBarangay(barangays[0]?.name || 'Poblacion');
     setContactNo('');
     setActive(true);
+    setInitialPassword('');
+    setConfirmPassword('');
+    setSaveError('');
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -58,6 +70,16 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
     if (!name.trim() || !username.trim() || !email.trim()) {
       alert('Please fill out full name, username, and email.');
       return;
+    }
+    if (isAddingNew) {
+      if (initialPassword !== confirmPassword) {
+        setSaveError('Initial password and confirmation do not match.');
+        return;
+      }
+      if (initialPassword.length < 12 || !/[a-z]/.test(initialPassword) || !/[A-Z]/.test(initialPassword) || !/\d/.test(initialPassword) || !/[^A-Za-z0-9]/.test(initialPassword)) {
+        setSaveError('Use at least 12 characters with uppercase, lowercase, number, and symbol characters.');
+        return;
+      }
     }
 
     setSaveError('');
@@ -75,7 +97,7 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
         active,
         createdAt: new Date().toISOString(),
       };
-      await accountsApi.create(newAcc);
+      await accountsApi.create({ ...newAcc, initialPassword, confirmPassword });
     } else if (isEditing) {
       const updatedAcc: UserAccount = {
         ...isEditing,
@@ -92,9 +114,36 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
 
     setIsEditing(null);
     setIsAddingNew(false);
+    setInitialPassword('');
+    setConfirmPassword('');
     await onRefresh();
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Unable to save account to database.');
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetTarget) return;
+    setResetError('');
+    if (resetPassword !== confirmResetPassword) {
+      setResetError('New password and confirmation do not match.');
+      return;
+    }
+    if (resetPassword.length < 12 || !/[a-z]/.test(resetPassword) || !/[A-Z]/.test(resetPassword) || !/\d/.test(resetPassword) || !/[^A-Za-z0-9]/.test(resetPassword)) {
+      setResetError('Use at least 12 characters with uppercase, lowercase, number, and symbol characters.');
+      return;
+    }
+    setIsResetting(true);
+    try {
+      await accountsApi.resetPassword(resetTarget.id, resetPassword, confirmResetPassword);
+      setResetTarget(null);
+      setResetPassword('');
+      setConfirmResetPassword('');
+    } catch (error) {
+      setResetError(error instanceof Error ? error.message : 'Unable to reset this account password.');
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -137,13 +186,37 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
           </p>
         </div>
 
-        <button
+        {currentUser?.role === 'super_admin' && <button
           onClick={startAddNew}
           className="bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-sm transition cursor-pointer"
         >
           <Plus className="w-4 h-4" /> Add User Account
-        </button>
+        </button>}
       </div>
+
+      {resetTarget && (
+        <form onSubmit={handleResetPassword} className="bg-white p-5 rounded-xl border border-amber-300 shadow-xs space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="font-bold text-sm text-stone-900">Reset Password: {resetTarget.name}</h3>
+            <button type="button" onClick={() => { setResetTarget(null); setResetPassword(''); setConfirmResetPassword(''); setResetError(''); }} className="p-1.5 text-stone-500 hover:bg-stone-100 rounded-lg" aria-label="Cancel password reset">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          {resetError && <p role="alert" className="text-xs text-red-700">{resetError}</p>}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="block font-semibold text-stone-700">New Password
+              <input type="password" required autoComplete="new-password" value={resetPassword} onChange={e => setResetPassword(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-300" />
+            </label>
+            <label className="block font-semibold text-stone-700">Confirm New Password
+              <input type="password" required autoComplete="new-password" value={confirmResetPassword} onChange={e => setConfirmResetPassword(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-300" />
+            </label>
+          </div>
+          <p className="text-[11px] text-stone-500">At least 12 characters, including uppercase, lowercase, a number, and a symbol.</p>
+          <div className="flex justify-end">
+            <button type="submit" disabled={isResetting} className="px-4 py-2 rounded-lg bg-amber-700 hover:bg-amber-600 disabled:opacity-50 text-white font-bold">{isResetting ? 'Resetting…' : 'Reset Password'}</button>
+          </div>
+        </form>
+      )}
 
       {/* Editor / Create Form */}
       {(isAddingNew || isEditing) && (
@@ -157,6 +230,8 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
               onClick={() => {
                 setIsAddingNew(false);
                 setIsEditing(null);
+                setInitialPassword('');
+                setConfirmPassword('');
               }}
               className="text-stone-400 hover:text-stone-700 cursor-pointer"
             >
@@ -201,6 +276,18 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
               />
             </div>
 
+            {isAddingNew && (
+              <>
+                <label className="block font-semibold text-stone-700">Initial Password *
+                  <input type="password" required autoComplete="new-password" value={initialPassword} onChange={e => setInitialPassword(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-300" />
+                </label>
+                <label className="block font-semibold text-stone-700">Confirm Password *
+                  <input type="password" required autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-300" />
+                </label>
+                <p className="sm:col-span-3 -mt-2 text-[11px] text-stone-500">At least 12 characters, including uppercase, lowercase, a number, and a symbol.</p>
+              </>
+            )}
+
             <div>
               <label className="block font-semibold text-stone-700 mb-1">Role / Permission</label>
               <select
@@ -220,10 +307,11 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
             {role === 'focal' && (
               <div>
                 <label className="block font-semibold text-stone-700 mb-1">
-                  Designated Barangay
+                  Designated Barangay *
                 </label>
                 <select
                   value={assignedBarangay}
+                  required
                   onChange={e => setAssignedBarangay(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg border border-stone-300 bg-white font-medium"
                 >
@@ -266,6 +354,8 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
               onClick={() => {
                 setIsAddingNew(false);
                 setIsEditing(null);
+                setInitialPassword('');
+                setConfirmPassword('');
               }}
               className="px-4 py-2 rounded-xl border border-stone-300 hover:bg-stone-100 font-semibold text-stone-700 cursor-pointer"
             >
@@ -360,6 +450,17 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
                       >
                         <Edit className="w-3.5 h-3.5" />
                       </button>
+                      {currentUser?.role === 'super_admin' && u.authUserId && (
+                        <button
+                          type="button"
+                          onClick={() => { setResetTarget(u); setResetPassword(''); setConfirmResetPassword(''); setResetError(''); }}
+                          className="p-1.5 rounded-lg text-amber-700 hover:bg-amber-100 transition cursor-pointer"
+                          title="Reset Password"
+                          aria-label={`Reset password for ${u.name}`}
+                        >
+                          <Key className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       <button
                         onClick={() => handleDelete(u.id, u.name)}
                         className="p-1.5 rounded-lg text-red-600 hover:bg-red-100 transition cursor-pointer"

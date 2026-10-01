@@ -13,7 +13,7 @@ import {
 } from '../db/swine.ts';
 import { archiveCertificateByControlNumber, getAllCertificates, getCertificateByIdOrControlNumber, upsertCertificate } from '../db/certificates.ts';
 import { getCertificateTemplates, saveCertificateTemplates } from '../db/certificateTemplates.ts';
-import { getAllUsers, getUserByAuthUserId, getUserByUsernameOrEmail, upsertUser, deleteUserByUid } from '../db/users.ts';
+import { getAllUsers, getUserByAuthUserId, getUserByUsernameOrEmail, insertUserProfile, upsertUser, deleteUserByUid } from '../db/users.ts';
 import { getAllMessages, createMessage, markMessageRead, deleteMessageById } from '../db/messages.ts';
 import { getAllMedia, insertMedia, deleteMediaById } from '../db/media.ts';
 import { getStoredSystemSetting, getSystemSetting, setSystemSetting } from '../db/settings.ts';
@@ -127,7 +127,7 @@ export function createApp() {
   app.use(async (req, res, next) => {
     const requiresSession =
       /^\/api\/(?:swine(?:-records)?|sync|registry-schema|module-data|accounts|certificates|reports)(?:\/|$)/.test(req.path) ||
-      req.path === '/api/auth/profile' ||
+      /^\/api\/auth\/(?:profile|superadmin-profile)$/.test(req.path) ||
       /^\/api\/admin\/registry-form-schema(?:\/|$)/.test(req.path) ||
       ((req.path === '/api/barangays' || req.path.startsWith('/api/barangays/')) && req.method !== 'GET');
     if (!requiresSession) return next();
@@ -434,6 +434,48 @@ export function createApp() {
     }
   });
 
+  app.get('/api/auth/superadmin-profile', async (req, res) => {
+    const authenticated = getUserSecurityContext(req);
+    if (!authenticated.isAuthenticated) {
+      return res.status(401).json({ success: false, error: 'Authentication required.' });
+    }
+    try {
+      const user = await getUserByAuthUserId(authenticated.userId);
+      if (!user) {
+        console.warn('[AUTH] superadmin_profile_not_found', { userId: authenticated.userId });
+        return res.status(403).json({ success: false, error: 'No application profile is linked to this Supabase account.' });
+      }
+      if (user.role !== 'super_admin') {
+        console.warn('[AUTH] superadmin_profile_wrong_role', { userId: authenticated.userId, role: user.role });
+        return res.status(403).json({ success: false, error: 'This account does not have Super Administrator privileges.' });
+      }
+      if (user.active !== true || user.isActive !== true || user.status !== 'active') {
+        console.warn('[AUTH] superadmin_profile_inactive', {
+          userId: authenticated.userId,
+          active: user.active === true,
+          isActive: user.isActive === true,
+          status: user.status,
+        });
+        return res.status(403).json({ success: false, error: 'This Super Administrator account is inactive.' });
+      }
+      console.info('[AUTH] superadmin_profile_authorized', {
+        userId: authenticated.userId,
+        profileFound: true,
+        role: user.role,
+        active: user.active === true,
+        isActive: user.isActive === true,
+        status: user.status,
+      });
+      return res.json({ success: true, data: user });
+    } catch (error: any) {
+      console.error('[AUTH] superadmin_profile_query_failed', {
+        userId: authenticated.userId,
+        code: getDatabaseErrorCode(error),
+      });
+      return res.status(503).json({ success: false, error: 'Unable to verify the Super Admin application profile.' });
+    }
+  });
+
   app.patch('/api/auth/profile', async (req, res) => {
     const security = getUserSecurityContext(req);
     if (!security.isAuthenticated) return res.status(401).json({ success: false, error: 'Authentication required.' });
@@ -521,41 +563,157 @@ export function createApp() {
   // Create or update profile and invite through Supabase Auth.
   app.post('/api/accounts', async (req, res) => {
     const admin = getUserSecurityContext(req);
-    if (!admin.isAdmin) {
+    if (!admin.isSuperAdmin) {
       return res.status(403).json({ success: false, error: 'You do not have permission to access this resource.' });
     }
 
     const payload = req.body;
-    if (!payload || !payload.email) {
-      return res.status(400).json({ success: false, error: 'User email is required.' });
+    const name = typeof payload?.name === 'string' ? payload.name.trim() : '';
+    const username = typeof payload?.username === 'string' ? payload.username.trim().toLowerCase() : '';
+    const email = typeof payload?.email === 'string' ? payload.email.trim().toLowerCase() : '';
+    const role = String(payload?.role || '');
+    const initialPassword = typeof payload?.initialPassword === 'string' ? payload.initialPassword : '';
+    const confirmPassword = typeof payload?.confirmPassword === 'string' ? payload.confirmPassword : '';
+    const assignedBarangay = typeof payload?.assignedBarangay === 'string' ? payload.assignedBarangay.trim() : '';
+
+    if (!name || !username || !email) {
+      return res.status(400).json({ success: false, error: 'Full name, username, and email are required.' });
+    }
+    if (!/^[a-z0-9._-]{3,40}$/.test(username)) {
+      return res.status(400).json({ success: false, error: 'Username must be 3-40 characters using letters, numbers, dots, underscores, or hyphens.' });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ success: false, error: 'Enter a valid email address.' });
+    }
+    if (!['super_admin', 'admin', 'focal', 'agent'].includes(role)) {
+      return res.status(400).json({ success: false, error: 'Unsupported user role.' });
+    }
+    if (role === 'focal' && !HINUNANGAN_BARANGAYS.some(b => b.name.toLowerCase() === assignedBarangay.toLowerCase())) {
+      return res.status(400).json({ success: false, error: 'Select a valid designated barangay for a Focal Person.' });
+    }
+    if (initialPassword.length < 12 ||
+      !/[a-z]/.test(initialPassword) ||
+      !/[A-Z]/.test(initialPassword) ||
+      !/\d/.test(initialPassword) ||
+      !/[^A-Za-z0-9]/.test(initialPassword)) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 12 characters and include uppercase, lowercase, number, and symbol characters.' });
+    }
+    if (initialPassword !== confirmPassword) {
+      return res.status(400).json({ success: false, error: 'Password and confirmation do not match.' });
+    }
+    if (typeof payload.active !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'Account active status is required.' });
+    }
+    if (!supabaseAdminClient) {
+      console.error('[ACCOUNTS] supabase_admin_client_unavailable');
+      return res.status(503).json({ success: false, error: 'Supabase Auth administration is not configured.' });
+    }
+
+    let createdAuthUserId: string | null = null;
+    try {
+      const [usernameProfile, emailProfile] = await Promise.all([
+        getUserByUsernameOrEmail(username),
+        getUserByUsernameOrEmail(email),
+      ]);
+      if (usernameProfile) {
+        return res.status(409).json({ success: false, error: 'That username is already in use.' });
+      }
+      if (emailProfile) {
+        return res.status(409).json({ success: false, error: 'That email already has an application profile.' });
+      }
+
+      const { data: authResult, error: authError } = await supabaseAdminClient.auth.admin.createUser({
+        email,
+        password: initialPassword,
+        email_confirm: true,
+        user_metadata: { username, full_name: name },
+      });
+      if (authError || !authResult.user) {
+        console.error('[ACCOUNTS] auth_user_creation_failed', { code: authError?.code || 'user_missing' });
+        return res.status(400).json({ success: false, error: authError?.message || 'Unable to create the Supabase Auth user.' });
+      }
+      createdAuthUserId = authResult.user.id;
+
+      const saved = await insertUserProfile({
+        uid: username,
+        username,
+        email,
+        authUserId: authResult.user.id,
+        name,
+        role: role as any,
+        assignedBarangay: role === 'focal' ? assignedBarangay : undefined,
+        phone: typeof payload.contactNo === 'string' ? payload.contactNo.trim() : '',
+        active: payload.active,
+        isActive: payload.active,
+        status: payload.active ? 'active' : 'inactive',
+        permissions: Array.isArray(payload.permissions) ? payload.permissions : [],
+      });
+      createdAuthUserId = null;
+      return res.status(201).json({ success: true, data: saved });
+    } catch (err: any) {
+      let rollbackFailed = false;
+      if (createdAuthUserId && supabaseAdminClient) {
+        const { error: rollbackError } = await supabaseAdminClient.auth.admin.deleteUser(createdAuthUserId);
+        if (rollbackError) {
+          rollbackFailed = true;
+          console.error('[ACCOUNTS] auth_user_rollback_failed', {
+            authUserId: createdAuthUserId,
+            code: rollbackError.code || 'delete_failed',
+          });
+        }
+      }
+      console.error('[ACCOUNTS] account_creation_failed', {
+        authUserId: createdAuthUserId,
+        code: err?.code || err?.cause?.code || 'profile_insert_failed',
+      });
+      return res.status(500).json({
+        success: false,
+        error: rollbackFailed
+          ? 'Profile creation failed and Supabase Auth cleanup could not be confirmed. Contact the system administrator.'
+          : 'Failed to create the account profile. The newly created Supabase Auth user was removed.',
+      });
+    }
+  });
+
+  app.post('/api/accounts/:id/reset-password', async (req, res) => {
+    const admin = getUserSecurityContext(req);
+    if (!admin.isSuperAdmin) {
+      return res.status(403).json({ success: false, error: 'Only an authenticated Super Admin can reset account passwords.' });
+    }
+    if (!supabaseAdminClient) {
+      return res.status(503).json({ success: false, error: 'Supabase Auth administration is not configured.' });
+    }
+
+    const password = typeof req.body?.initialPassword === 'string' ? req.body.initialPassword : '';
+    const confirmation = typeof req.body?.confirmPassword === 'string' ? req.body.confirmPassword : '';
+    if (password.length < 12 || !/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 12 characters and include uppercase, lowercase, number, and symbol characters.' });
+    }
+    if (password !== confirmation) {
+      return res.status(400).json({ success: false, error: 'Password and confirmation do not match.' });
     }
 
     try {
-      const email = String(payload.email).trim().toLowerCase();
-      const role = String(payload.role || 'focal');
-      if (!['super_admin', 'admin', 'focal', 'agent'].includes(role)) {
-        return res.status(400).json({ success: false, error: 'Unsupported user role.' });
+      const target = await getUserByUsernameOrEmail(req.params.id);
+      if (!target) return res.status(404).json({ success: false, error: 'User profile not found.' });
+      if (!target.authUserId) {
+        return res.status(409).json({ success: false, error: 'This account is not linked to a Supabase Auth user.' });
       }
-      if (role === 'super_admin' && !admin.isSuperAdmin) {
-        return res.status(403).json({ success: false, error: 'Only a Super Admin can create another Super Admin.' });
+      const { error } = await supabaseAdminClient.auth.admin.updateUserById(target.authUserId, { password });
+      if (error) {
+        console.error('[ACCOUNTS] auth_password_reset_failed', {
+          authUserId: target.authUserId,
+          code: error.code || 'update_failed',
+        });
+        return res.status(502).json({ success: false, error: 'Supabase Auth could not reset this account password.' });
       }
-      const existingProfile = await getUserByUsernameOrEmail(email);
-      const authUserId = existingProfile?.authUserId || await inviteAuthUser(email, {
-        username: payload.username || email.split('@')[0],
-        full_name: payload.name || payload.fullName || '',
-      });
-      const saved = await upsertUser({
-        ...payload,
-        id: existingProfile?.id || payload.id || `usr-${Date.now()}`,
-        email,
-        authUserId,
-        status: payload.active === false ? 'inactive' : 'active',
-        active: payload.active !== false,
-      });
-      return res.status(201).json({ success: true, data: saved });
+      console.info('[ACCOUNTS] auth_password_reset_succeeded', { authUserId: target.authUserId });
+      return res.json({ success: true });
     } catch (err: any) {
-      console.error('Error creating user account:', err);
-      return res.status(500).json({ success: false, error: err?.message || 'Failed to save user account to database.' });
+      console.error('[ACCOUNTS] password_reset_request_failed', {
+        code: err?.code || err?.cause?.code || 'profile_lookup_failed',
+      });
+      return res.status(500).json({ success: false, error: 'Unable to reset this account password.' });
     }
   });
 
@@ -584,6 +742,7 @@ export function createApp() {
         if (error) throw error;
       }
       payload.status = payload.active === false ? 'inactive' : 'active';
+      payload.isActive = payload.active !== false;
       const saved = await upsertUser(payload);
       return res.json({ success: true, data: saved });
     } catch (err: any) {

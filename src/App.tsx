@@ -519,10 +519,19 @@ export default function App() {
     // Unauthenticated visitor on /superadmin -> render dedicated SuperAdminAuth
     return (
       <SuperAdminAuth
-        onSuccess={(user) => {
-          setCurrentUser(user);
+        onSuccess={async (user) => {
+          const verifiedUser = await authApi.restoreSession();
+          if (
+            !verifiedUser ||
+            verifiedUser.role !== 'super_admin' ||
+            verifiedUser.authUserId !== user.authUserId
+          ) {
+            throw new Error('The authenticated Supabase session could not be verified for the Super Admin account.');
+          }
+
+          storageService.setCurrentUser(verifiedUser, true);
+          setCurrentUser(verifiedUser);
           setCurrentRole('super_admin');
-          storageService.setCurrentUser(user);
           navigateTo('/superadmin/dashboard');
           setActiveTab('dashboard');
         }}

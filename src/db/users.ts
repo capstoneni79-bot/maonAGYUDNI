@@ -8,9 +8,12 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-
 
 export function mapDbToUser(row: any): UserAccount {
   const permissions = typeof row.permissions === 'string' ? JSON.parse(row.permissions) : row.permissions;
+  const username = row.uid && !/^usr[-_]/i.test(String(row.uid))
+    ? String(row.uid)
+    : (row.email ? row.email.split('@')[0] : `user-${row.id}`);
   return {
     id: String(row.uid || row.id),
-    username: row.email ? row.email.split('@')[0] : `user-${row.id}`,
+    username,
     name: row.name || 'User',
     email: row.email,
     role: (row.role || 'focal') as any,
@@ -98,6 +101,30 @@ export async function upsertUser(user: Partial<UserAccount>): Promise<UserAccoun
     console.error('Database query failed for upsertUser:', err);
     throw new Error('Failed to save user account to database.');
   }
+}
+
+export async function insertUserProfile(user: Partial<UserAccount> & { uid: string }): Promise<UserAccount> {
+  const authUserId = user.authUserId;
+  if (!authUserId || !UUID_REGEX.test(authUserId)) {
+    throw new Error('A valid Supabase Auth user ID is required to create an account profile.');
+  }
+  const values = {
+    id: authUserId,
+    uid: user.uid,
+    email: user.email || '',
+    name: user.name || user.fullName || user.username || 'User',
+    role: user.role || 'focal',
+    assignedBarangay: user.assignedBarangay || null,
+    phone: user.phone || null,
+    authUserId,
+    active: user.active ?? true,
+    isActive: user.isActive ?? user.active ?? true,
+    status: user.status || (user.active === false ? 'inactive' : 'active'),
+    permissions: user.permissions || [],
+  };
+  const inserted = await db.insert(users).values(values).returning();
+  if (!inserted[0]) throw new Error('Database did not return the inserted user profile.');
+  return mapDbToUser(inserted[0]);
 }
 
 export async function deleteUserByUid(uid: string): Promise<boolean> {

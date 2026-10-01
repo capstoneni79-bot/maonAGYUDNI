@@ -95,7 +95,47 @@ export const authApi = {
   },
 
   superAdminLogin(email: string, password: string) {
-    return loginAt('/api/auth/superadmin-login', email, password);
+    return (async () => {
+      if (!supabase) throw new Error('Supabase Auth client is not configured.');
+
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const session = data.session;
+      const authUser = data.user;
+      console.info('[AUTH] browser_superadmin_login', {
+        success: !error && Boolean(authUser),
+        userId: authUser?.id || null,
+        sessionExists: Boolean(session),
+      });
+      if (error || !authUser || !session) {
+        throw new Error('Supabase Auth could not establish a session for these credentials.');
+      }
+
+      storageService.setSessionToken(session.access_token);
+      const response = await fetch('/api/auth/superadmin-profile', {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.success || !result.data) {
+        console.warn('[AUTH] browser_superadmin_profile_rejected', {
+          userId: authUser.id,
+          status: response.status,
+          profileFound: Boolean(result?.data),
+        });
+        await supabase.auth.signOut();
+        storageService.setSessionToken(null);
+        throw new Error(result?.error || 'Unable to verify the Super Admin application profile.');
+      }
+
+      return {
+        user: result.data as UserAccount,
+        role: result.data.role as string,
+        assignedBarangay: result.data.assignedBarangay as string | undefined,
+        token: session.access_token,
+      };
+    })();
   },
 
   async restoreSession(): Promise<UserAccount | null> {
@@ -181,7 +221,7 @@ export const accountsApi = {
     return data.data || [];
   },
 
-  async create(user: Partial<UserAccount>): Promise<UserAccount> {
+  async create(user: Partial<UserAccount> & { initialPassword: string; confirmPassword: string }): Promise<UserAccount> {
     const res = await fetch('/api/accounts', {
       method: 'POST',
       headers: getAuthHeaders(),
@@ -192,6 +232,18 @@ export const accountsApi = {
       throw new Error(data?.error || 'Unable to save user account to database.');
     }
     return data.data;
+  },
+
+  async resetPassword(id: string, initialPassword: string, confirmPassword: string): Promise<void> {
+    const res = await fetch(`/api/accounts/${encodeURIComponent(id)}/reset-password`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ initialPassword, confirmPassword }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.success) {
+      throw new Error(data?.error || 'Unable to reset account password.');
+    }
   },
 
   async update(id: string, user: Partial<UserAccount>): Promise<UserAccount> {

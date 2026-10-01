@@ -13,12 +13,11 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { UserAccount } from '../../types';
-import { storageService } from '../../services/storageService';
 import { authApi } from '../../services/api';
 import { useOfficialLogos } from '../common/OfficialSeals';
 
 interface SuperAdminAuthProps {
-  onSuccess: (user: UserAccount) => void;
+  onSuccess: (user: UserAccount) => void | Promise<void>;
   onReturnToNormalPortal: () => void;
 }
 
@@ -51,8 +50,7 @@ export const SuperAdminAuth: React.FC<SuperAdminAuthProps> = ({
         return;
       }
 
-      storageService.setCurrentUser(result.user, true);
-      onSuccess(result.user);
+      await onSuccess(result.user);
     } catch (error) {
       setErrorMsg(error instanceof Error ? error.message : 'Invalid Super Administrator credentials. Access Denied.');
     } finally {
