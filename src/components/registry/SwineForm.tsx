@@ -141,7 +141,6 @@ export const SwineForm: React.FC<SwineFormProps> = ({
 
   // Immutable Pig ID Tag Generator: HIN-YYYY-XXXX
   // Retains existing ID tag on edit; generates sequential HIN-YYYY-XXXX for new record
-  const [pigIdTag] = useState<string>(() => {
   const [pigIdTag, setPigIdTag] = useState<string>(() => {
     if (initialData?.pigIdTag) return initialData.pigIdTag;
     if (initialData?.earTagNo && /^HIN-\d{4}-\d{4,}$/i.test(initialData.earTagNo)) {
@@ -152,9 +151,7 @@ export const SwineForm: React.FC<SwineFormProps> = ({
     }
     const existing = storageService.getSwineRecords();
     return generateNextPigIdTag(existing);
-    return '';
   });
-  const [earTagNo] = useState<string>(pigIdTag);
   const [earTagNo, setEarTagNo] = useState<string>(pigIdTag);
 
   useEffect(() => {
