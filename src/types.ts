@@ -10,6 +10,7 @@ export interface UserAccount {
   phone?: string;
   contactNo?: string;
   active?: boolean;
+  isActive?: boolean;
   status?: 'active' | 'inactive' | 'pending' | 'suspended';
   authUserId?: string;
   permissions?: string[];

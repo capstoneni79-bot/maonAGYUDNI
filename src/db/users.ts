@@ -20,6 +20,7 @@ export function mapDbToUser(row: any): UserAccount {
     contactNo: row.phone || '',
     authUserId: row.authUserId || undefined,
     active: row.active ?? row.isActive ?? row.status === 'active',
+    isActive: row.isActive ?? row.active ?? row.status === 'active',
     status: row.status || (row.active === false ? 'inactive' : 'active'),
     permissions: Array.isArray(permissions) ? permissions : [],
     createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString(),
@@ -78,6 +79,7 @@ export async function upsertUser(user: Partial<UserAccount>): Promise<UserAccoun
       phone: user.phone || null,
       authUserId,
       active: user.active ?? true,
+      isActive: user.isActive ?? user.active ?? true,
       status: user.status || (user.active === false ? 'inactive' : 'active'),
       permissions: user.permissions || [],
     };

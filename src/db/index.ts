@@ -339,6 +339,7 @@ export async function initPostgresTables(): Promise<boolean> {
           phone TEXT,
           auth_user_id UUID,
           active BOOLEAN NOT NULL DEFAULT TRUE,
+          is_active BOOLEAN NOT NULL DEFAULT TRUE,
           permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
           status TEXT NOT NULL DEFAULT 'active',
           created_at TIMESTAMP DEFAULT now()
@@ -369,6 +370,9 @@ export async function initPostgresTables(): Promise<boolean> {
 
         ALTER TABLE users
           ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE;
+
+        ALTER TABLE users
+          ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 
         ALTER TABLE users
           ADD COLUMN IF NOT EXISTS permissions JSONB NOT NULL DEFAULT '[]'::jsonb;

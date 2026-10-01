@@ -152,6 +152,7 @@ export function createApp() {
     const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
     if (!token) {
       if (isPublicRoute) return next();
+      console.warn('[AUTH] protected_request_missing_bearer', { path: req.path });
       return res.status(401).json({ success: false, error: 'Authentication required. Please sign in to access this resource.' });
     }
 
@@ -164,12 +165,26 @@ export function createApp() {
       const { data, error } = await supabaseAuthClient.auth.getUser(token);
       if (error || !data.user) {
         if (isPublicRoute) return next();
+        console.warn('[AUTH] protected_request_auth_token_rejected', {
+          path: req.path,
+          code: error?.code || 'user_not_found',
+          status: error?.status,
+        });
         return res.status(401).json({ success: false, error: 'Supabase Auth session is invalid or expired.' });
       }
 
       const profile = await getUserByAuthUserId(data.user.id);
-      if (!profile || !profile.active || profile.status !== 'active') {
+      if (!profile || profile.active !== true || profile.isActive !== true || profile.status !== 'active') {
         if (isPublicRoute) return next();
+        console.warn('[AUTH] protected_request_profile_rejected', {
+          path: req.path,
+          userId: data.user.id,
+          profileFound: Boolean(profile),
+          role: profile?.role || null,
+          active: profile?.active === true,
+          isActive: profile?.isActive === true,
+          status: profile?.status || null,
+        });
         return res.status(403).json({ success: false, error: 'No active application profile is linked to this Supabase account.' });
       }
 
@@ -184,10 +199,24 @@ export function createApp() {
         active: profile.active,
       } satisfies SessionUser;
 
+      console.info('[AUTH] protected_request_authorized', {
+        path: req.path,
+        userId: data.user.id,
+        profileFound: true,
+        role: profile.role,
+        active: profile.active === true,
+        isActive: profile.isActive === true,
+        status: profile.status,
+      });
+
       return next();
     } catch (error) {
       if (isPublicRoute) return next();
-      console.error('Supabase session validation failed:', error);
+      console.error('[AUTH] protected_request_validation_failed', {
+        path: req.path,
+        message: error instanceof Error ? error.message : 'Unknown authentication validation error',
+        code: getDatabaseErrorCode(error),
+      });
       return res.status(503).json({ success: false, error: 'Unable to validate Supabase Auth session.' });
     }
   });
@@ -321,6 +350,10 @@ export function createApp() {
         return res.status(401).json({ success: false, error: 'Invalid email or password.' });
       }
       authData = result.data;
+      console.info('[AUTH] supabase_login_succeeded', {
+        userId: authData.user.id,
+        sessionExists: Boolean(authData.session),
+      });
     } catch (error: any) {
       console.error('[AUTH] supabase_authentication_request_failed', {
         name: error?.name,
@@ -344,7 +377,7 @@ export function createApp() {
       console.warn('[AUTH] application_profile_not_found', { authUserId: authData.user.id });
       return res.status(403).json({ success: false, error: 'No application profile is linked to this Supabase account.' });
     }
-    if (!user.active || user.status !== 'active') {
+    if (user.active !== true || user.isActive !== true || user.status !== 'active') {
       console.warn('[AUTH] application_profile_inactive', { authUserId: authData.user.id });
       return res.status(403).json({ success: false, error: 'This application account is inactive.' });
     }
@@ -364,6 +397,14 @@ export function createApp() {
       return res.status(403).json({ success: false, error: 'Super Admin accounts must use the restricted Super Admin Gateway.' });
     }
 
+    console.info('[AUTH] login_profile_authorized', {
+      userId: authData.user.id,
+      profileFound: true,
+      role: user.role,
+      active: user.active === true,
+      status: user.status,
+    });
+
     return res.json({
       success: true,
       user,
@@ -380,12 +421,12 @@ export function createApp() {
   app.get('/api/auth/profile', async (req, res) => {
     const authenticated = getUserSecurityContext(req);
     if (!authenticated.isAuthenticated) {
-      return res.status(401).json({ success: false, error: 'Authentication required.' });
+        return res.status(401).json({ success: false, error: 'Authentication required. Please sign in to access this resource.' });
     }
     try {
       const user = await getUserByAuthUserId(authenticated.userId);
-      if (!user || !user.active || user.status !== 'active') {
-        return res.status(403).json({ success: false, error: 'No active application profile is linked to this account.' });
+      if (!user || user.active !== true || user.isActive !== true || user.status !== 'active') {
+          return res.status(403).json({ success: false, error: 'No active application profile is linked to this Supabase account.' });
       }
       return res.json({ success: true, data: user });
     } catch (error: any) {

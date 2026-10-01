@@ -10,6 +10,7 @@ export const users = pgTable('users', {
   phone: text('phone'),
   authUserId: uuid('auth_user_id'),
   active: boolean('active').notNull().default(true),
+  isActive: boolean('is_active').notNull().default(true),
   permissions: jsonb('permissions').notNull().default([]),
   status: text('status').notNull().default('active'),
   createdAt: timestamp('created_at').defaultNow(),

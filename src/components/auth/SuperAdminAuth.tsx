@@ -29,7 +29,6 @@ export const SuperAdminAuth: React.FC<SuperAdminAuthProps> = ({
   const [usernameOrEmail, setUsernameOrEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -153,18 +152,6 @@ export const SuperAdminAuth: React.FC<SuperAdminAuthProps> = ({
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-            </div>
-
-            <div className="flex items-center justify-between text-xs pt-1">
-              <label className="flex items-center gap-2 text-stone-400 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={e => setRememberMe(e.target.checked)}
-                  className="rounded border-stone-700 bg-stone-950 text-rose-600 focus:ring-rose-500 accent-rose-600"
-                />
-                <span className="text-[11px]">Remember session</span>
-              </label>
             </div>
 
             <button

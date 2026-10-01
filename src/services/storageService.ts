@@ -61,7 +61,6 @@ const STORAGE_KEYS = {
   DYNAMIC_FORM: 'da_hinunangan_dynamic_form_v1',
   OFFLINE_QUEUE: 'da_hinunangan_offline_queue_v1',
   CURRENT_USER: 'da_hinunangan_current_user_v1',
-  SESSION_TOKEN: 'da_hinunangan_session_token_v1',
   SIMULATED_OFFLINE: 'da_hinunangan_simulated_offline_v1',
   BIOSECURITY_AUDITS: 'da_hinunangan_biosecurity_audits_v1',
   BIOSECURITY_INCIDENTS: 'da_hinunangan_biosecurity_incidents_v1',
@@ -98,8 +97,7 @@ function setItem<T>(key: string, value: T): void {
 }
 
 function getSessionAuthorizationHeader(): Record<string, string> {
-  const token = getItem<string | null>(STORAGE_KEYS.SESSION_TOKEN, null);
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  return currentAuthToken ? { Authorization: `Bearer ${currentAuthToken}` } : {};
 }
 
 

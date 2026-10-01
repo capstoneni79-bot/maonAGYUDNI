@@ -65,14 +65,28 @@ async function loginAt(endpoint: string, identifier: string, password: string): 
     refresh_token: data.refreshToken,
   });
   if (sessionError) throw sessionError;
-  storageService.setSessionToken(data.token);
+  const { data: sessionData, error: sessionReadError } = await supabase.auth.getSession();
+  const { data: userData, error: userReadError } = await supabase.auth.getUser();
+  const session = sessionData.session;
+  console.info('[AUTH] browser_login_session_check', {
+    sessionExists: Boolean(session),
+    userExists: Boolean(userData.user),
+    userId: userData.user?.id || null,
+  });
+  if (sessionReadError || userReadError || !session || !userData.user || userData.user.id !== data.user.authUserId) {
+    storageService.setSessionToken(null);
+    throw new Error('Supabase Auth session was not persisted for the signed-in account.');
+  }
+  storageService.setSessionToken(session.access_token);
   try {
     await storageService.refreshRegistryFormSchemaFromCloud();
   } catch (error) {
-    storageService.setSessionToken(null);
-    throw error;
+    console.warn('[AUTH] post_login_schema_refresh_failed', {
+      message: error instanceof Error ? error.message : 'Unknown schema refresh error',
+      userId: userData.user.id,
+    });
   }
-  return { user: data.user, role: data.role, assignedBarangay: data.assignedBarangay, token: data.token };
+  return { user: data.user, role: data.role, assignedBarangay: data.assignedBarangay, token: session.access_token };
 }
 
 export const authApi = {
@@ -85,17 +99,45 @@ export const authApi = {
   },
 
   async restoreSession(): Promise<UserAccount | null> {
-    if (!supabase) return null;
+    if (!supabase) {
+      console.warn('[AUTH] browser_supabase_client_unavailable');
+      return null;
+    }
     const { data, error } = await supabase.auth.getSession();
-    if (error || !data.session) return null;
+    if (error || !data.session) {
+      console.info('[AUTH] session_restore_check', { sessionExists: false });
+      return null;
+    }
     storageService.setSessionToken(data.session.access_token);
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    console.info('[AUTH] session_restore_user_check', {
+      sessionExists: true,
+      userExists: Boolean(userData.user),
+      userId: userData.user?.id || null,
+    });
+    if (userError || !userData.user || userData.user.id !== data.session.user.id) {
+      storageService.setSessionToken(null);
+      return null;
+    }
     const res = await fetch('/api/auth/profile', { headers: getAuthHeaders() });
     const result = await res.json().catch(() => null);
     if (!res.ok || !result?.success) {
+      console.warn('[AUTH] session_restore_profile_rejected', {
+        userId: userData.user.id,
+        status: res.status,
+        profileFound: false,
+      });
       await supabase.auth.signOut();
       storageService.setSessionToken(null);
       throw new Error(result?.error || 'Unable to load the current database profile.');
     }
+    console.info('[AUTH] session_restore_profile_authorized', {
+      userId: userData.user.id,
+      profileFound: true,
+      role: result.data?.role,
+      active: result.data?.active === true,
+      status: result.data?.status,
+    });
     return result.data as UserAccount;
   },
 

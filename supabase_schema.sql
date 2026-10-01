@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
   phone TEXT,
   auth_user_id UUID UNIQUE,
   active BOOLEAN NOT NULL DEFAULT TRUE,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
   permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
   status TEXT NOT NULL DEFAULT 'active',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

@@ -54,6 +54,7 @@ const ViewLoader: React.FC = () => (
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [currentRole, setCurrentRole] = useState<UserRole | 'landing'>('landing');
+  const [sessionRestoreComplete, setSessionRestoreComplete] = useState(false);
   const isSuperAdmin = currentUser?.role === 'super_admin' || currentRole === 'super_admin';
   const isAdmin = currentUser?.role === 'admin' || currentRole === 'admin' || isSuperAdmin;
   const { fontStyle, colors, roleConfig } = useRoleTheme(currentRole);
@@ -171,6 +172,8 @@ export default function App() {
       setCurrentRole(user.role);
     }).catch(error => {
       console.error('Unable to restore Supabase Auth profile:', error);
+    }).finally(() => {
+      if (active) setSessionRestoreComplete(true);
     });
     return () => { active = false; };
   }, []);
@@ -488,6 +491,14 @@ export default function App() {
 
   // Dedicated /superadmin portal handling
   const isSuperAdminRoute = currentPath === '/superadmin' || currentPath.startsWith('/superadmin');
+
+  if (isSuperAdminRoute && !currentUser && !sessionRestoreComplete) {
+    return (
+      <div className="min-h-screen bg-stone-950 flex items-center justify-center text-stone-200 text-sm" role="status">
+        Restoring secure session...
+      </div>
+    );
+  }
 
   if (isSuperAdminRoute && !isSuperAdmin) {
     if (currentUser) {
