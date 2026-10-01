@@ -1,7 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import { db } from './index.ts';
 import { users } from './schema.ts';
 import { eq, or } from 'drizzle-orm';
 import { UserAccount } from '../types.ts';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function mapDbToUser(row: any): UserAccount {
   const permissions = typeof row.permissions === 'string' ? JSON.parse(row.permissions) : row.permissions;
@@ -56,10 +59,24 @@ export async function getUserByAuthUserId(authUserId: string): Promise<UserAccou
 export async function upsertUser(user: Partial<UserAccount>): Promise<UserAccount> {
   try {
     const uid = user.id || `usr-${Date.now()}`;
+    const uid = (user as any).uid || (user.id && !UUID_REGEX.test(user.id) ? user.id : `usr-${Date.now()}`);
     const email = user.email || `${user.username || 'user'}@hinunangan.da.gov.ph`;
     
+    // Ensure primary key id is ALWAYS a valid UUID
+    let primaryId: string;
+    if (user.authUserId && UUID_REGEX.test(user.authUserId)) {
+      primaryId = user.authUserId;
+    } else if (user.id && UUID_REGEX.test(user.id)) {
+      primaryId = user.id;
+    } else {
+      primaryId = randomUUID();
+    }
+
+    const authUserId = user.authUserId && UUID_REGEX.test(user.authUserId) ? user.authUserId : null;
+
     const values = {
       id: user.authUserId || user.id,
+      id: primaryId,
       uid,
       email,
       name: user.name || user.fullName || user.username || 'User',
@@ -67,6 +84,7 @@ export async function upsertUser(user: Partial<UserAccount>): Promise<UserAccoun
       assignedBarangay: user.assignedBarangay || null,
       phone: user.phone || null,
       authUserId: user.authUserId || null,
+      authUserId,
       active: user.active ?? true,
       status: user.status || (user.active === false ? 'inactive' : 'active'),
       permissions: user.permissions || [],

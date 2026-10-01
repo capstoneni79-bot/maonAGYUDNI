@@ -9,6 +9,7 @@ import {
   batchUpsertSwineRecords,
   deleteSwineRecordById,
   deleteSwineRecordsByIds,
+  getNextAuthoritativePigIdTag,
 } from '../db/swine.ts';
 import { archiveCertificateByControlNumber, getAllCertificates, getCertificateByIdOrControlNumber, upsertCertificate } from '../db/certificates.ts';
 import { getCertificateTemplates, saveCertificateTemplates } from '../db/certificateTemplates.ts';
@@ -114,20 +115,56 @@ export function createApp() {
       /^\/api\/admin\/registry-form-schema(?:\/|$)/.test(req.path) ||
       ((req.path === '/api/barangays' || req.path.startsWith('/api/barangays/')) && req.method !== 'GET');
     if (!requiresSession) return next();
+    // Only check routes starting with /api/ or /health
+    if (!req.path.startsWith('/api/') && req.path !== '/health') {
+      return next();
+    }
+
+    // Explicitly allowed public routes that do NOT require an active session
+    const isPublicRoute =
+      req.path === '/health' ||
+      req.path === '/api/health' ||
+      req.path === '/api/auth/login' ||
+      req.path === '/api/landing-cms/published' ||
+      (req.path === '/api/landing-config' && req.method === 'GET') ||
+      (req.path === '/api/landing/settings' && req.method === 'GET') ||
+      req.path === '/api/legal-documents' ||
+      req.path === '/api/public/assistant/chat' ||
+      (req.path === '/api/barangays' && req.method === 'GET');
+
     const authorization = req.headers.authorization || '';
     const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
     if (!token || !supabaseAuthClient) {
       return res.status(401).json({ success: false, error: 'Supabase Auth session required.' });
+
+    // If it's a public route and no token was provided, proceed as guest
+    if (isPublicRoute && !token) {
+      return next();
     }
+
+    // Protected API route requires a token
+    if (!token) {
+      return res.status(401).json({ success: false, error: 'Authentication required. Please sign in to access this resource.' });
+    }
+
+    if (!supabaseAuthClient) {
+      if (isPublicRoute) return next();
+      return res.status(503).json({ success: false, error: 'Supabase Auth service is not configured on the server.' });
+    }
+
     try {
       const { data, error } = await supabaseAuthClient.auth.getUser(token);
       if (error || !data.user) {
+        if (isPublicRoute) return next();
         return res.status(401).json({ success: false, error: 'Supabase Auth session is invalid or expired.' });
       }
+
       const profile = await getUserByAuthUserId(data.user.id);
       if (!profile || !profile.active || profile.status !== 'active') {
+        if (isPublicRoute) return next();
         return res.status(403).json({ success: false, error: 'No active application profile is linked to this Supabase account.' });
       }
+
       (req as any).authenticatedUser = {
         userId: data.user.id,
         username: profile.username,
@@ -138,8 +175,10 @@ export function createApp() {
         permissions: profile.permissions || [],
         active: profile.active,
       } satisfies SessionUser;
+
       return next();
     } catch (error) {
+      if (isPublicRoute) return next();
       console.error('Supabase session validation failed:', error);
       return res.status(503).json({ success: false, error: 'Unable to validate Supabase Auth session.' });
     }
@@ -526,14 +565,17 @@ export function createApp() {
   // =========================================================================
 
   // Next authoritative Pig ID Generator
+  // Next authoritative Pig ID Generator using atomic database sequence
   app.get('/api/swine-records/next-id', async (_req, res) => {
     try {
       const currentYear = new Date().getFullYear();
       const { total } = await getAllSwineRecords();
       const nextSequence = String(total + 1).padStart(4, '0');
       const nextPigId = `HIN-${currentYear}-${nextSequence}`;
+      const nextPigId = await getNextAuthoritativePigIdTag();
       return res.json({ success: true, nextPigId });
     } catch (err: any) {
+      console.error('Error generating next pig ID:', err);
       const fallbackSeq = String(Math.floor(1000 + Math.random() * 9000));
       return res.json({ success: true, nextPigId: `HIN-${new Date().getFullYear()}-${fallbackSeq}` });
     }
@@ -681,6 +723,8 @@ export function createApp() {
       const currentYear = new Date().getFullYear();
       const { total } = await getAllSwineRecords();
       tag = `HIN-${currentYear}-${String(total + 1).padStart(4, '0')}`;
+      // Auto-generate authoritative ID atomically from database sequence
+      tag = await getNextAuthoritativePigIdTag();
     }
 
     if (tag && !PIG_ID_TAG_REGEX.test(tag)) {
@@ -1063,10 +1107,40 @@ export function createApp() {
 
   // =========================================================================
   // 3. FARMERS API (DATABASE-DERIVED)
+  // 3. FARMERS API (DATABASE-DERIVED, STRICTLY AUTHENTICATED & RBAC SCOPED)
   // =========================================================================
   app.get('/api/farmers', async (req, res) => {
     const user = getUserSecurityContext(req);
     const effectiveBarangay = user.isAdmin ? undefined : (user.assignedBarangay || user.barangayId);
+    if (!user.isAuthenticated) {
+      return res.status(401).json({ success: false, error: 'Authentication required to view farmer registry.' });
+    }
+
+    if (user.isAgent) {
+      return res.status(403).json({ success: false, error: 'Access Denied: Agents are not authorized to access farmer PII records.' });
+    }
+
+    if (user.isFocal && !user.assignedBarangay) {
+      return res.status(403).json({ success: false, error: 'Access Denied: Focal person has no assigned barangay.' });
+    }
+
+    const requestedBarangay = (req.query.barangay as string) || (req.query.filter_barangay as string);
+    if (!user.isAdmin) {
+      if (
+        requestedBarangay &&
+        requestedBarangay !== 'all' &&
+        requestedBarangay.toLowerCase() !== (user.assignedBarangay || '').toLowerCase()
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: `Access Denied: You are not authorized to view farmer records outside your assigned barangay (${user.assignedBarangay}).`,
+        });
+      }
+    }
+
+    const effectiveBarangay = user.isAdmin
+      ? (requestedBarangay && requestedBarangay !== 'all' ? requestedBarangay : undefined)
+      : (user.assignedBarangay || user.barangayId);
 
     try {
       const { records } = await getAllSwineRecords({
@@ -1374,21 +1448,66 @@ export function createApp() {
   });
 
   // Database configuration test & update endpoints
+  // Database configuration test & update endpoints (RESTRICTED TO SUPER ADMIN ONLY)
   app.post('/api/admin/database/test', async (req, res) => {
+    const user = getUserSecurityContext(req);
+    if (!user.isSuperAdmin) {
+      return res.status(403).json({ success: false, error: 'Access Denied: Only Super Administrators can test database configurations.' });
+    }
+
     const { connectionString } = req.body || {};
     if (!connectionString) {
+    if (!connectionString || typeof connectionString !== 'string') {
       return res.status(400).json({ success: false, error: 'Connection string is required.' });
     }
     const result = await testDatabaseConnection(connectionString.trim());
+
+    const trimmedUri = connectionString.trim();
+    try {
+      const parsed = new URL(trimmedUri);
+      if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
+        return res.status(400).json({ success: false, error: 'Invalid database connection protocol. Expected postgres:// or postgresql://.' });
+      }
+      const hostname = parsed.hostname.toLowerCase();
+      if (hostname === '169.254.169.254' || hostname === 'metadata.google.internal' || hostname === 'metadata') {
+        return res.status(400).json({ success: false, error: 'Connection to cloud metadata host is prohibited.' });
+      }
+    } catch {
+      return res.status(400).json({ success: false, error: 'Malformed PostgreSQL connection URI format.' });
+    }
+
+    const result = await testDatabaseConnection(trimmedUri);
     return res.json(result);
   });
 
   app.post('/api/admin/database/save', async (req, res) => {
+    const user = getUserSecurityContext(req);
+    if (!user.isSuperAdmin) {
+      return res.status(403).json({ success: false, error: 'Access Denied: Only Super Administrators can switch database connections.' });
+    }
+
     const { connectionString } = req.body || {};
     if (!connectionString) {
+    if (!connectionString || typeof connectionString !== 'string') {
       return res.status(400).json({ success: false, error: 'Connection string is required.' });
     }
     const result = await updateDatabaseConnection(connectionString.trim());
+
+    const trimmedUri = connectionString.trim();
+    try {
+      const parsed = new URL(trimmedUri);
+      if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
+        return res.status(400).json({ success: false, error: 'Invalid database connection protocol. Expected postgres:// or postgresql://.' });
+      }
+      const hostname = parsed.hostname.toLowerCase();
+      if (hostname === '169.254.169.254' || hostname === 'metadata.google.internal' || hostname === 'metadata') {
+        return res.status(400).json({ success: false, error: 'Connection to cloud metadata host is prohibited.' });
+      }
+    } catch {
+      return res.status(400).json({ success: false, error: 'Malformed PostgreSQL connection URI format.' });
+    }
+
+    const result = await updateDatabaseConnection(trimmedUri);
     return res.json(result);
   });
 
@@ -1663,8 +1782,19 @@ export function createApp() {
   });
 
   app.delete('/api/messages/:id', async (req, res) => {
+    const user = getUserSecurityContext(req);
+    if (!user.isAuthenticated) {
+      return res.status(401).json({ success: false, error: 'Authentication required to delete messages.' });
+    }
     const { id } = req.params;
     try {
+      const allMsgs = await getAllMessages({ role: 'admin', userId: user.userId });
+      const target = allMsgs.find(m => m.id === id);
+      if (target && !user.isAdmin) {
+        if (target.senderId !== user.userId && target.senderName !== user.username) {
+          return res.status(403).json({ success: false, error: 'Access Denied: You cannot delete messages sent by another user.' });
+        }
+      }
       await deleteMessageById(id);
       return res.json({ success: true, message: 'Message deleted.' });
     } catch (err: any) {
@@ -1674,6 +1804,7 @@ export function createApp() {
 
   // =========================================================================
   // 8. MEDIA FILES & UPLOAD (DATABASE-DRIVEN)
+  // 8. MEDIA FILES & UPLOAD (DATABASE-DRIVEN & VALIDATED)
   // =========================================================================
   app.get('/api/media', async (req, res) => {
     const category = req.query.category as string;
@@ -1686,23 +1817,49 @@ export function createApp() {
     }
   });
 
+  const ALLOWED_MEDIA_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml']);
+  const MAX_MEDIA_BYTES = 10 * 1024 * 1024; // 10MB limit
+
   app.post('/api/media/upload', async (req, res) => {
     const user = getUserSecurityContext(req);
+    if (!user.isAuthenticated) {
+      return res.status(401).json({ success: false, error: 'Authentication required to upload media.' });
+    }
+
     const { fileName, fileUrl, base64, mimeType, fileSize, category, altText } = req.body || {};
 
     const resolvedUrl = fileUrl || base64;
     if (!resolvedUrl) {
+    if (!resolvedUrl || typeof resolvedUrl !== 'string') {
       return res.status(400).json({ success: false, error: 'Image fileUrl or base64 payload is required.' });
     }
+
+    // Validate MIME type
+    const safeMime = (mimeType || 'image/jpeg').toLowerCase();
+    if (!ALLOWED_MEDIA_MIMES.has(safeMime)) {
+      return res.status(400).json({ success: false, error: 'Unsupported file type. Only JPEG, PNG, WebP, GIF, and SVG images are permitted.' });
+    }
+
+    // Validate size (max 10MB)
+    const approximateBytes = Math.ceil((resolvedUrl.length * 3) / 4);
+    if (approximateBytes > MAX_MEDIA_BYTES || (typeof fileSize === 'number' && fileSize > MAX_MEDIA_BYTES)) {
+      return res.status(400).json({ success: false, error: 'File size exceeds maximum permitted limit (10MB).' });
+    }
+
+    const sanitizedFileName = (fileName || `media-${Date.now()}`).replace(/[^a-zA-Z0-9._-]/g, '_');
 
     try {
       const item = await insertMedia({
         fileName: fileName || `media-${Date.now()}`,
+        fileName: sanitizedFileName,
         fileUrl: resolvedUrl,
         mimeType: mimeType || 'image/jpeg',
         fileSize: fileSize || (typeof resolvedUrl === 'string' ? resolvedUrl.length : 0),
+        mimeType: safeMime,
+        fileSize: fileSize || approximateBytes,
         category: category || 'OTHER',
         altText: altText || fileName || 'Uploaded media asset',
+        altText: altText || sanitizedFileName || 'Uploaded media asset',
         uploadedBy: user.username,
       });
 
@@ -1716,16 +1873,37 @@ export function createApp() {
   app.post('/api/media', async (req, res) => {
     const user = getUserSecurityContext(req);
     const { fileName, fileUrl, base64, category, altText } = req.body || {};
+    if (!user.isAuthenticated) {
+      return res.status(401).json({ success: false, error: 'Authentication required to upload media.' });
+    }
+
+    const { fileName, fileUrl, base64, mimeType, fileSize, category, altText } = req.body || {};
     const resolvedUrl = fileUrl || base64;
     if (!resolvedUrl) {
+    if (!resolvedUrl || typeof resolvedUrl !== 'string') {
       return res.status(400).json({ success: false, error: 'fileUrl or base64 is required.' });
     }
+
+    const safeMime = (mimeType || 'image/jpeg').toLowerCase();
+    if (!ALLOWED_MEDIA_MIMES.has(safeMime)) {
+      return res.status(400).json({ success: false, error: 'Unsupported file type. Only JPEG, PNG, WebP, GIF, and SVG images are permitted.' });
+    }
+
+    const approximateBytes = Math.ceil((resolvedUrl.length * 3) / 4);
+    if (approximateBytes > MAX_MEDIA_BYTES || (typeof fileSize === 'number' && fileSize > MAX_MEDIA_BYTES)) {
+      return res.status(400).json({ success: false, error: 'File size exceeds maximum permitted limit (10MB).' });
+    }
+
+    const sanitizedFileName = (fileName || `media-${Date.now()}`).replace(/[^a-zA-Z0-9._-]/g, '_');
+
     try {
       const item = await insertMedia({
         fileName: fileName || `media-${Date.now()}`,
+        fileName: sanitizedFileName,
         fileUrl: resolvedUrl,
         category: category || 'OTHER',
         altText: altText || fileName,
+        altText: altText || sanitizedFileName,
         uploadedBy: user.username,
       });
       return res.status(201).json({ success: true, data: item });
@@ -2124,6 +2302,10 @@ export function createApp() {
   });
 
   app.post('/api/config/master/audit-log', async (req, res) => {
+    const user = getUserSecurityContext(req);
+    if (!user.isAuthenticated || (!user.isSuperAdmin && !user.isAdmin)) {
+      return res.status(403).json({ success: false, error: 'Unauthorized: Only administrators can record system audit logs.' });
+    }
     try {
       const entry = req.body;
       if (entry && entry.what) {
@@ -2134,10 +2316,22 @@ export function createApp() {
           timestamp: entry.timestamp || new Date().toISOString(),
         });
         await setSystemSetting('master_config_audit_logs', currentLogs);
+        const currentLogs = (await getSystemSetting<any[]>('master_config_audit_logs', [])) || [];
+        const updatedLogs = [
+          {
+            ...entry,
+            id: entry.id || `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            who: entry.who || user.username,
+            timestamp: entry.timestamp || new Date().toISOString(),
+          },
+          ...(Array.isArray(currentLogs) ? currentLogs : []),
+        ].slice(0, 150); // Bound to latest 150 entries
+        await setSystemSetting('master_config_audit_logs', updatedLogs);
       }
       return res.json({ success: true });
     } catch {
       return res.json({ success: false });
+      return res.status(500).json({ success: false, error: 'Failed to record audit log.' });
     }
   });
 
@@ -2348,10 +2542,12 @@ export function createApp() {
             }
             let tag = (payload.pigIdTag || payload.earTagNo || '').trim();
             // If temporary local tag, generate authoritative backend Pig ID
+            // If temporary local tag, generate authoritative backend Pig ID from sequence
             if (!tag || tag.startsWith('LOCAL-') || !PIG_ID_TAG_REGEX.test(tag)) {
               const currentYear = new Date().getFullYear();
               const { total } = await getAllSwineRecords();
               tag = `HIN-${currentYear}-${String(total + 1).padStart(4, '0')}`;
+              tag = await getNextAuthoritativePigIdTag();
             }
 
             if (user.isFocal) {

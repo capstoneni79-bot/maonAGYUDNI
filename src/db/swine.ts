@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './index.ts';
+import { db, pool } from './index.ts';
 import { swineRecords } from './schema.ts';
 import { eq, inArray, and, ilike, or, desc, sql } from 'drizzle-orm';
 import { SwineRecord } from '../types.ts';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 import {
   calculateSwineAge,
   getEstimatedWeightRange,
@@ -943,7 +946,42 @@ export async function getAllSwineRecords(
 }
 
 /**
+ * Atomic, concurrency-safe Pig ID Tag generator using PostgreSQL sequence.
+ * Format: HIN-YYYY-XXXX (e.g. HIN-2026-0001)
+ */
+export async function getNextAuthoritativePigIdTag(): Promise<string> {
+  const currentYear = new Date().getFullYear();
+  try {
+    await pool.query(`CREATE SEQUENCE IF NOT EXISTS swine_tag_seq START WITH 1 INCREMENT BY 1;`);
+    const res = await pool.query(`SELECT nextval('swine_tag_seq') as seq;`);
+    const seqNum = parseInt(res.rows[0]?.seq || '1', 10);
+    return `HIN-${currentYear}-${String(seqNum).padStart(4, '0')}`;
+  } catch (err) {
+    console.error('Sequence nextval error, using table scan fallback:', err);
+    try {
+      const maxRes = await pool.query(
+        `SELECT pig_id_tag FROM swine_records WHERE pig_id_tag LIKE $1 ORDER BY id DESC LIMIT 50;`,
+        [`HIN-${currentYear}-%`]
+      );
+      let maxNum = 0;
+      for (const row of maxRes.rows) {
+        const parts = (row.pig_id_tag || '').split('-');
+        if (parts.length >= 3) {
+          const n = parseInt(parts[2], 10);
+          if (!isNaN(n) && n > maxNum) maxNum = n;
+        }
+      }
+      return `HIN-${currentYear}-${String(maxNum + 1).padStart(4, '0')}`;
+    } catch {
+      const fallbackSeq = String(Math.floor(1000 + Math.random() * 9000));
+      return `HIN-${currentYear}-${fallbackSeq}`;
+    }
+  }
+}
+
+/**
  * Get one swine record by ID, Pig ID, or computed Pig ID.
+ * Prevents PostgreSQL 22P02 error by checking UUID validity before querying id column.
  */
 export async function getSwineRecordById(
   id: string
@@ -970,16 +1008,36 @@ export async function getSwineRecordById(
           )
         )
         .limit(1);
+    const trimmedId = (id || '').trim();
+    if (!trimmedId) return null;
 
     if (
       rows.length === 0
     ) {
+    const queryConditions = [
+      eq(swineRecords.pigIdTag, trimmedId),
+      eq(swineRecords.computedPigId, trimmedId),
+      eq(swineRecords.earTagNo, trimmedId),
+    ];
+
+    if (UUID_REGEX.test(trimmedId)) {
+      queryConditions.unshift(eq(swineRecords.id, trimmedId));
+    }
+
+    const rows = await db
+      .select()
+      .from(swineRecords)
+      .where(or(...queryConditions))
+      .limit(1);
+
+    if (rows.length === 0) {
       return null;
     }
 
     return mapDbToSwine(
       rows[0]
     );
+    return mapDbToSwine(rows[0]);
   } catch (error: any) {
     throw createDatabaseError(
       'lookup',
@@ -1281,6 +1339,7 @@ export async function batchUpsertSwineRecords(
 
 /**
  * Delete one swine record.
+ * Delete one swine record by UUID or Pig ID.
  */
 export async function deleteSwineRecordById(
   id: string
@@ -1294,6 +1353,24 @@ export async function deleteSwineRecordById(
           id
         )
       );
+    const trimmedId = (id || '').trim();
+    if (!trimmedId) return false;
+
+    if (UUID_REGEX.test(trimmedId)) {
+      await db
+        .delete(swineRecords)
+        .where(eq(swineRecords.id, trimmedId));
+    } else {
+      await db
+        .delete(swineRecords)
+        .where(
+          or(
+            eq(swineRecords.pigIdTag, trimmedId),
+            eq(swineRecords.computedPigId, trimmedId),
+            eq(swineRecords.earTagNo, trimmedId)
+          )
+        );
+    }
 
     return true;
   } catch (error: any) {
@@ -1306,6 +1383,7 @@ export async function deleteSwineRecordById(
 
 /**
  * Delete multiple swine records.
+ * Delete multiple swine records by UUIDs or Pig IDs.
  */
 export async function deleteSwineRecordsByIds(
   ids: string[]
@@ -1315,24 +1393,48 @@ export async function deleteSwineRecordsByIds(
       !ids ||
       ids.length === 0
     ) {
+    if (!ids || ids.length === 0) {
       return 0;
     }
 
     const result =
       await db
+    const validUuids = ids.map(i => (i || '').trim()).filter(i => UUID_REGEX.test(i));
+    const nonUuids = ids.map(i => (i || '').trim()).filter(i => i && !UUID_REGEX.test(i));
+
+    let totalDeleted = 0;
+
+    if (validUuids.length > 0) {
+      const result = await db
+        .delete(swineRecords)
+        .where(inArray(swineRecords.id, validUuids))
+        .returning({ id: swineRecords.id });
+      totalDeleted += result.length;
+    }
+
+    if (nonUuids.length > 0) {
+      const result = await db
         .delete(swineRecords)
         .where(
           inArray(
             swineRecords.id,
             ids
+          or(
+            inArray(swineRecords.pigIdTag, nonUuids),
+            inArray(swineRecords.computedPigId, nonUuids),
+            inArray(swineRecords.earTagNo, nonUuids)
           )
         )
         .returning({
           id:
             swineRecords.id,
         });
+        .returning({ id: swineRecords.id });
+      totalDeleted += result.length;
+    }
 
     return result.length;
+    return totalDeleted;
   } catch (error: any) {
     throw createDatabaseError(
       'bulk delete',

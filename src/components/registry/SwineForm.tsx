@@ -142,6 +142,7 @@ export const SwineForm: React.FC<SwineFormProps> = ({
   // Immutable Pig ID Tag Generator: HIN-YYYY-XXXX
   // Retains existing ID tag on edit; generates sequential HIN-YYYY-XXXX for new record
   const [pigIdTag] = useState<string>(() => {
+  const [pigIdTag, setPigIdTag] = useState<string>(() => {
     if (initialData?.pigIdTag) return initialData.pigIdTag;
     if (initialData?.earTagNo && /^HIN-\d{4}-\d{4,}$/i.test(initialData.earTagNo)) {
       return initialData.earTagNo;
@@ -151,8 +152,29 @@ export const SwineForm: React.FC<SwineFormProps> = ({
     }
     const existing = storageService.getSwineRecords();
     return generateNextPigIdTag(existing);
+    return '';
   });
   const [earTagNo] = useState<string>(pigIdTag);
+  const [earTagNo, setEarTagNo] = useState<string>(pigIdTag);
+
+  useEffect(() => {
+    if (!initialData && !pigIdTag) {
+      const token = storageService.getSessionToken();
+      fetch('/api/swine-records/next-id', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data?.success && data?.nextPigId) {
+            setPigIdTag(data.nextPigId);
+            setEarTagNo(data.nextPigId);
+          }
+        })
+        .catch(err => {
+          console.error('Failed to fetch next pig ID from sequence:', err);
+        });
+    }
+  }, [initialData, pigIdTag]);
 
   const [farmerName, setFarmerName] = useState(initialData?.farmerName || '');
 
