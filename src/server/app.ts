@@ -314,7 +314,7 @@ export function createApp() {
     if (!supabaseAuthClient || !authConfig.projectRef) {
       console.error('[AUTH] supabase_configuration_missing', {
         hasUrl: authConfig.hasUrl,
-        hasAnonKey: authConfig.hasAnonKey,
+        hasPublishableKey: authConfig.hasPublishableKey,
       });
       return res.status(503).json({ success: false, error: 'Supabase Auth is not configured on the server.' });
     }

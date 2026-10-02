@@ -2,7 +2,11 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const serverUrl = process.env.SUPABASE_URL?.trim();
 const url = serverUrl || process.env.VITE_SUPABASE_URL?.trim();
-const anonKey = process.env.SUPABASE_ANON_KEY?.trim() || process.env.VITE_SUPABASE_ANON_KEY?.trim();
+const publishableKey =
+  process.env.SUPABASE_PUBLISHABLE_KEY?.trim() ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ||
+  process.env.SUPABASE_ANON_KEY?.trim() ||
+  process.env.VITE_SUPABASE_ANON_KEY?.trim();
 const adminKey = process.env.SUPABASE_SECRET_KEY?.trim() || process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 
 export const supabaseAuthProjectRef = (() => {
@@ -16,7 +20,7 @@ export const supabaseAuthProjectRef = (() => {
 export function getSupabaseAuthConfigStatus() {
   return {
     hasUrl: Boolean(url),
-    hasAnonKey: Boolean(anonKey),
+    hasPublishableKey: Boolean(publishableKey),
     projectRef: supabaseAuthProjectRef,
   };
 }
@@ -30,8 +34,8 @@ export function getSupabaseAdminConfigError(): string | null {
     : null;
 }
 
-export const supabaseAuthClient: SupabaseClient | null = url && anonKey
-  ? createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } })
+export const supabaseAuthClient: SupabaseClient | null = url && publishableKey
+  ? createClient(url, publishableKey, { auth: { persistSession: false, autoRefreshToken: false } })
   : null;
 
 export const supabaseAdminClient: SupabaseClient | null = url && adminKey

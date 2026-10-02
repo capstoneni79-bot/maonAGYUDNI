@@ -96,16 +96,16 @@ SESSION_SECRET=[OUTPUT_OF_openssl_rand_-hex_32]
 SQL_SSL=true
 NODE_ENV=production
 VITE_SUPABASE_URL=https://[PROJECT_REF].supabase.co
-VITE_SUPABASE_ANON_KEY=[YOUR_SUPABASE_ANON_KEY]
+VITE_SUPABASE_PUBLISHABLE_KEY=[YOUR_SUPABASE_PUBLISHABLE_KEY]
 SUPABASE_URL=https://[PROJECT_REF].supabase.co
-SUPABASE_ANON_KEY=[YOUR_SUPABASE_ANON_KEY]
+SUPABASE_PUBLISHABLE_KEY=[YOUR_SUPABASE_PUBLISHABLE_KEY]
 SUPABASE_SECRET_KEY=[SERVER_ONLY_SUPABASE_SECRET_KEY]
 VITE_GOOGLE_MAPS_API_KEY=
 VITE_GOOGLE_MAPS_MAP_ID=DEMO_MAP_ID
 ```
 
 This project already reads the main database connection from `DATABASE_URL` in [src/db/index.ts](src/db/index.ts).
-For Super Admin login, `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` configure the browser session client. `SUPABASE_URL` and `SUPABASE_ANON_KEY` configure server-side password authentication. Set all four to the same Supabase project, and point `DATABASE_URL` to that project's database. The `/api/health` response exposes non-secret `supabase_auth_project_ref` and `database_project_ref` values for comparison. Account creation, Auth administration, and server-side storage require `SUPABASE_URL` and server-only `SUPABASE_SECRET_KEY`. The legacy `SUPABASE_SERVICE_ROLE_KEY` is accepted as a fallback during migration. Never use a `VITE_` prefix for either secret variable.
+For Super Admin login, `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` configure the browser session client. `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` configure the server-side Auth token verifier. Set them to the same Supabase project, and point `DATABASE_URL` to that project's database. The `/api/health` response exposes non-secret `supabase_auth_project_ref` and `database_project_ref` values for comparison. Account creation, Auth administration, and server-side storage require `SUPABASE_URL` and server-only `SUPABASE_SECRET_KEY`. The legacy `SUPABASE_SERVICE_ROLE_KEY` is accepted as a fallback during migration. Never use a `VITE_` prefix for either secret variable.
 `SESSION_SECRET` signs 12-hour bearer sessions used by swine-record, schema, and synchronization APIs. Generate it with `openssl rand -hex 32`, then set the same high-entropy value for Production, Preview, and Development so sessions work across serverless instances. Do not commit the secret.
 
 ---
@@ -120,7 +120,7 @@ SESSION_SECRET=[GENERATE_WITH_openssl_rand_-hex_32]
 GEMINI_API_KEY=your_key_here
 NODE_ENV=development
 VITE_SUPABASE_URL=https://[PROJECT_REF].supabase.co
-VITE_SUPABASE_ANON_KEY=[YOUR_SUPABASE_ANON_KEY]
+VITE_SUPABASE_PUBLISHABLE_KEY=[YOUR_SUPABASE_PUBLISHABLE_KEY]
 ```
 
 Then run:
@@ -195,7 +195,7 @@ Once this is connected, every push to GitHub can trigger a Vercel deployment aut
 - [ ] Vercel project connected to GitHub
 - [ ] `DATABASE_URL` added in Vercel
 - [ ] `VITE_SUPABASE_URL` and `SUPABASE_URL` point to the same project
-- [ ] `VITE_SUPABASE_ANON_KEY` and `SUPABASE_ANON_KEY` use that project's anon key
+- [ ] `VITE_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_PUBLISHABLE_KEY` use that project's publishable key
 - [ ] `DATABASE_URL` points to that same Supabase project
 - [ ] app deployed successfully
 - [ ] `/api/health` returns `status: ok`
@@ -275,7 +275,7 @@ Configure these in your AI Studio **Secrets / Environment Variables** panel:
 | `SQL_SSL` | `true` | Enables SSL socket connection |
 | `NODE_ENV` | `development` (or `production`) | Environment flag |
 | `VITE_SUPABASE_URL` | `https://[PROJECT-REF].supabase.co` | Supabase Public URL |
-| `VITE_SUPABASE_ANON_KEY` | `eyJhbGciOi...` | Supabase Anon Key |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_...` | Supabase publishable key |
 | `VITE_GOOGLE_MAPS_API_KEY` | *(Optional)* Google Maps API key | Satellite basemap tiles |
 | `VITE_GOOGLE_MAPS_MAP_ID` | `DEMO_MAP_ID` | Vector map configuration ID |
 
@@ -290,9 +290,9 @@ In Vercel Dashboard → **Settings** → **Environment Variables**, add the foll
 | `SQL_SSL` | All | `true` |
 | `NODE_ENV` | All | `production` |
 | `VITE_SUPABASE_URL` | All | `https://[PROJECT-REF].supabase.co` |
-| `VITE_SUPABASE_ANON_KEY` | All | `eyJhbGci...` |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | All | Publishable key from the same Supabase project |
 | `SUPABASE_URL` | All | Same project URL as `VITE_SUPABASE_URL` |
-| `SUPABASE_ANON_KEY` | All | Same project's anon key as `VITE_SUPABASE_ANON_KEY` |
+| `SUPABASE_PUBLISHABLE_KEY` | All | Same project's publishable key; used for server token verification |
 | `SUPABASE_SECRET_KEY` | All | Server-only Supabase secret key; never use a `VITE_` prefix (legacy `SUPABASE_SERVICE_ROLE_KEY` is accepted temporarily) |
 | `VITE_GOOGLE_MAPS_API_KEY` | All | *(Optional)* Live Google Maps key |
 | `VITE_GOOGLE_MAPS_MAP_ID` | All | `DEMO_MAP_ID` |
