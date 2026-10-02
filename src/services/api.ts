@@ -43,6 +43,35 @@ function getAuthHeaders(): Record<string, string> {
   return headers;
 }
 
+async function getFreshAuthHeaders(): Promise<Record<string, string>> {
+  if (!supabase) throw new Error('Supabase Auth is unavailable. Please sign in again.');
+
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw new Error('Unable to read your Supabase session. Please sign in again.');
+  let session = data.session;
+  if (!session) throw new Error('Your session has expired. Please sign in again.');
+
+  if (session.expires_at && session.expires_at <= Math.floor(Date.now() / 1000) + 60) {
+    const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+    if (refreshError || !refreshed.session) {
+      storageService.setSessionToken(null);
+      throw new Error('Your session has expired. Please sign in again.');
+    }
+    session = refreshed.session;
+  }
+
+  const { data: userData, error: userError } = await supabase.auth.getUser(session.access_token);
+  if (userError || !userData.user || userData.user.id !== session.user.id) {
+    storageService.setSessionToken(null);
+    throw new Error(userError?.status === 401
+      ? 'Your session has expired. Please sign in again.'
+      : 'Unable to verify your Supabase session. Please sign in again.');
+  }
+
+  storageService.setSessionToken(session.access_token);
+  return { ...getAuthHeaders(), Authorization: `Bearer ${session.access_token}` };
+}
+
 async function loginAt(endpoint: string, identifier: string, password: string): Promise<{ user: UserAccount; role: string; assignedBarangay?: string; token: string }> {
   const res = await fetch(endpoint, {
     method: 'POST',
@@ -209,9 +238,10 @@ export const authApi = {
 
 export const accountsApi = {
   async getAll(): Promise<UserAccount[]> {
+    const headers = await getFreshAuthHeaders();
     const res = await fetch('/api/accounts', {
       method: 'GET',
-      headers: getAuthHeaders(),
+      headers,
     });
     if (!res.ok) {
       const err = await res.json().catch(() => null);
@@ -222,9 +252,10 @@ export const accountsApi = {
   },
 
   async create(user: Partial<UserAccount> & { initialPassword: string; confirmPassword: string }): Promise<UserAccount> {
+    const headers = await getFreshAuthHeaders();
     const res = await fetch('/api/accounts', {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers,
       body: JSON.stringify(user),
     });
     const data = await res.json().catch(() => null);
@@ -235,9 +266,10 @@ export const accountsApi = {
   },
 
   async resetPassword(id: string, initialPassword: string, confirmPassword: string): Promise<void> {
+    const headers = await getFreshAuthHeaders();
     const res = await fetch(`/api/accounts/${encodeURIComponent(id)}/reset-password`, {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers,
       body: JSON.stringify({ initialPassword, confirmPassword }),
     });
     const data = await res.json().catch(() => null);
@@ -247,9 +279,10 @@ export const accountsApi = {
   },
 
   async update(id: string, user: Partial<UserAccount>): Promise<UserAccount> {
+    const headers = await getFreshAuthHeaders();
     const res = await fetch(`/api/accounts/${encodeURIComponent(id)}`, {
       method: 'PUT',
-      headers: getAuthHeaders(),
+      headers,
       body: JSON.stringify(user),
     });
     const data = await res.json().catch(() => null);
@@ -260,9 +293,10 @@ export const accountsApi = {
   },
 
   async delete(id: string): Promise<boolean> {
+    const headers = await getFreshAuthHeaders();
     const res = await fetch(`/api/accounts/${encodeURIComponent(id)}`, {
       method: 'DELETE',
-      headers: getAuthHeaders(),
+      headers,
     });
     if (!res.ok) {
       const err = await res.json().catch(() => null);

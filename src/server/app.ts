@@ -153,7 +153,7 @@ export function createApp() {
     if (!token) {
       if (isPublicRoute) return next();
       console.warn('[AUTH] protected_request_missing_bearer', { path: req.path });
-      return res.status(401).json({ success: false, error: 'Authentication required. Please sign in to access this resource.' });
+      return res.status(401).json({ success: false, error: 'Your session has expired. Please sign in again.' });
     }
 
     if (!supabaseAuthClient) {
@@ -165,12 +165,19 @@ export function createApp() {
       const { data, error } = await supabaseAuthClient.auth.getUser(token);
       if (error || !data.user) {
         if (isPublicRoute) return next();
-        console.warn('[AUTH] protected_request_auth_token_rejected', {
+        const tokenRejected = error?.status === 401 || !error;
+        console.warn('[AUTH] protected_request_auth_verification_failed', {
           path: req.path,
+          reason: tokenRejected ? 'token_rejected' : 'supabase_verifier_error',
           code: error?.code || 'user_not_found',
           status: error?.status,
         });
-        return res.status(401).json({ success: false, error: 'Supabase Auth session is invalid or expired.' });
+        return res.status(tokenRejected ? 401 : 503).json({
+          success: false,
+          error: tokenRejected
+            ? 'Your session has expired. Please sign in again.'
+            : 'Supabase could not verify your session right now. Please try again shortly.',
+        });
       }
 
       const profile = await getUserByAuthUserId(data.user.id);
@@ -565,7 +572,7 @@ export function createApp() {
   app.post('/api/accounts', async (req, res) => {
     const admin = getUserSecurityContext(req);
     if (!admin.isSuperAdmin) {
-      return res.status(403).json({ success: false, error: 'You do not have permission to access this resource.' });
+      return res.status(403).json({ success: false, error: 'You are not authorized to manage system accounts.' });
     }
 
     const payload = req.body;
@@ -679,7 +686,7 @@ export function createApp() {
   app.post('/api/accounts/:id/reset-password', async (req, res) => {
     const admin = getUserSecurityContext(req);
     if (!admin.isSuperAdmin) {
-      return res.status(403).json({ success: false, error: 'Only an authenticated Super Admin can reset account passwords.' });
+      return res.status(403).json({ success: false, error: 'You are not authorized to manage system accounts.' });
     }
     if (!supabaseAdminClient) {
       return res.status(503).json({ success: false, error: getSupabaseAdminConfigError() });
