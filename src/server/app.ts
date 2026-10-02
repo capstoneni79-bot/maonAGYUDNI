@@ -540,7 +540,7 @@ export function createApp() {
   });
 
   // Enforce role-based endpoint security for Super Admin resources
-  app.all(['/admin/landing-page-cms', '/admin/sidebar-configuration', '/admin/user-accounts'], (req, res) => {
+  app.all(['/admin/landing-page-cms', '/admin/sidebar-configuration'], (req, res) => {
     const user = getUserSecurityContext(req);
     if (!user.isSuperAdmin) {
       return res.status(403).json({
@@ -562,20 +562,90 @@ export function createApp() {
     return res.json({ success: true, message: 'Authorized Form Customization resource.' });
   });
 
-  // Get all user accounts (Super Admin only)
+  const listAllAuthUsers = async () => {
+    if (!supabaseAdminClient) throw new Error(getSupabaseAdminConfigError() || 'Supabase Auth administration is unavailable.');
+    const authUsers: Array<{
+      id: string;
+      email?: string;
+      created_at?: string;
+      user_metadata?: Record<string, unknown>;
+    }> = [];
+    const perPage = 1000;
+    for (let page = 1; ; page += 1) {
+      const { data, error } = await supabaseAdminClient.auth.admin.listUsers({ page, perPage });
+      if (error) throw error;
+      authUsers.push(...data.users.map(authUser => ({
+        id: authUser.id,
+        email: authUser.email,
+        created_at: authUser.created_at,
+        user_metadata: authUser.user_metadata as Record<string, unknown> | undefined,
+      })));
+      if (data.users.length < perPage) break;
+    }
+    return authUsers;
+  };
+
+  // Get application profiles merged with Supabase Auth users (Admin/Super Admin).
   app.get('/api/accounts', async (req, res) => {
     const user = getUserSecurityContext(req);
     if (!user.isAdmin) {
       return res.status(403).json({ success: false, error: 'You do not have permission to access this resource.' });
     }
 
+    if (!supabaseAdminClient) {
+      return res.status(503).json({ success: false, error: getSupabaseAdminConfigError() });
+    }
+
     try {
-      const allUsers = await getAllUsers();
-      const sanitized = allUsers.map(u => {
-        const copy = { ...u };
-        return copy;
+      const profiles = await getAllUsers();
+      let authUsers;
+      try {
+        authUsers = await listAllAuthUsers();
+      } catch (error: any) {
+        console.error('[ACCOUNTS] auth_user_list_failed', { code: error?.code || 'list_failed', status: error?.status });
+        return res.status(502).json({ success: false, error: 'Unable to retrieve users from Supabase Auth.' });
+      }
+
+      const profilesByAuthId = new Map(
+        profiles.filter(profile => profile.authUserId).map(profile => [profile.authUserId as string, profile])
+      );
+      const authIds = new Set(authUsers.map(authUser => authUser.id));
+      const merged = authUsers.map(authUser => {
+        const profile = profilesByAuthId.get(authUser.id);
+        if (profile) return { ...profile, hasProfile: true };
+
+        const metadata = authUser.user_metadata || {};
+        const email = authUser.email || '';
+        const username = typeof metadata.username === 'string'
+          ? metadata.username
+          : (email.includes('@') ? email.slice(0, email.indexOf('@')) : authUser.id);
+        const metadataName = typeof metadata.full_name === 'string'
+          ? metadata.full_name
+          : typeof metadata.name === 'string'
+          ? metadata.name
+          : '';
+        return {
+          id: authUser.id,
+          authUserId: authUser.id,
+          username,
+          email,
+          name: metadataName || email || authUser.id,
+          role: 'focal' as const,
+          active: false,
+          isActive: false,
+          status: 'pending' as const,
+          permissions: [],
+          createdAt: authUser.created_at || new Date(0).toISOString(),
+          hasProfile: false,
+          contactNo: '',
+          phone: '',
+        };
       });
-      return res.json({ success: true, count: sanitized.length, data: sanitized });
+      const legacyProfiles = profiles
+        .filter(profile => !profile.authUserId || !authIds.has(profile.authUserId))
+        .map(profile => ({ ...profile, hasProfile: true }));
+      const result = [...merged, ...legacyProfiles];
+      return res.json({ success: true, count: result.length, data: result });
     } catch (err: any) {
       console.error('Error fetching accounts from database:', err);
       return res.status(500).json({ success: false, error: 'Unable to retrieve user accounts from database.' });
@@ -597,20 +667,18 @@ export function createApp() {
 
   const inviteAuthUser = async (email: string, metadata: Record<string, unknown>) => {
     if (!supabaseAdminClient) throw new Error(getSupabaseAdminConfigError() || 'Supabase Auth administration is unavailable.');
-    const { data: usersPage, error: listError } = await supabaseAdminClient.auth.admin.listUsers({ page: 1, perPage: 1000 });
-    if (listError) throw listError;
-    const existingAuthUser = (usersPage.users as Array<{ id: string; email?: string | null }>)
-      .find(user => user.email?.toLowerCase() === email.toLowerCase());
+    const allAuthUsers = await listAllAuthUsers();
+    const existingAuthUser = allAuthUsers.find(user => user.email?.toLowerCase() === email.toLowerCase());
     if (existingAuthUser) return existingAuthUser.id;
     const { data, error } = await supabaseAdminClient.auth.admin.inviteUserByEmail(email, { data: metadata });
     if (error || !data.user) throw error || new Error('Supabase Auth did not return the invited user.');
     return data.user.id;
   };
 
-  // Create or update profile and invite through Supabase Auth.
+  // Create a Supabase Auth user and its application profile.
   app.post('/api/accounts', async (req, res) => {
     const admin = getUserSecurityContext(req);
-    if (!admin.isSuperAdmin) {
+    if (!admin.isAdmin) {
       return res.status(403).json({ success: false, error: 'You are not authorized to manage system accounts.' });
     }
 
@@ -635,6 +703,9 @@ export function createApp() {
     if (!['super_admin', 'admin', 'focal', 'agent'].includes(role)) {
       return res.status(400).json({ success: false, error: 'Unsupported user role.' });
     }
+    if (role === 'super_admin' && !admin.isSuperAdmin) {
+      return res.status(403).json({ success: false, error: 'Administrators cannot create Super Admin accounts.' });
+    }
     if (role === 'focal' && !HINUNANGAN_BARANGAYS.some(b => b.name.toLowerCase() === assignedBarangay.toLowerCase())) {
       return res.status(400).json({ success: false, error: 'Select a valid designated barangay for a Focal Person.' });
     }
@@ -658,15 +729,19 @@ export function createApp() {
 
     let createdAuthUserId: string | null = null;
     try {
-      const [usernameProfile, emailProfile] = await Promise.all([
+      const [usernameProfile, emailProfile, authUsers] = await Promise.all([
         getUserByUsernameOrEmail(username),
         getUserByUsernameOrEmail(email),
+        listAllAuthUsers(),
       ]);
-      if (usernameProfile) {
+      const usernameExistsInAuth = authUsers.some(authUser =>
+        String(authUser.user_metadata?.username || '').trim().toLowerCase() === username
+      );
+      if (usernameProfile || usernameExistsInAuth) {
         return res.status(409).json({ success: false, error: 'That username is already in use.' });
       }
-      if (emailProfile) {
-        return res.status(409).json({ success: false, error: 'That email already has an application profile.' });
+      if (emailProfile || authUsers.some(authUser => authUser.email?.toLowerCase() === email)) {
+        return res.status(409).json({ success: false, error: 'That email is already registered.' });
       }
 
       const { data: authResult, error: authError } = await supabaseAdminClient.auth.admin.createUser({
@@ -742,19 +817,24 @@ export function createApp() {
 
     try {
       const target = await getUserByUsernameOrEmail(req.params.id);
-      if (!target) return res.status(404).json({ success: false, error: 'User profile not found.' });
-      if (!target.authUserId) {
+      let authUserId = target?.authUserId;
+      if (!target && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(req.params.id)) {
+        const { data, error } = await supabaseAdminClient.auth.admin.getUserById(req.params.id);
+        if (error || !data.user) return res.status(404).json({ success: false, error: 'Supabase Auth user not found.' });
+        authUserId = data.user.id;
+      }
+      if (!authUserId) {
         return res.status(409).json({ success: false, error: 'This account is not linked to a Supabase Auth user.' });
       }
-      const { error } = await supabaseAdminClient.auth.admin.updateUserById(target.authUserId, { password });
+      const { error } = await supabaseAdminClient.auth.admin.updateUserById(authUserId, { password });
       if (error) {
         console.error('[ACCOUNTS] auth_password_reset_failed', {
-          authUserId: target.authUserId,
+          authUserId,
           code: error.code || 'update_failed',
         });
         return res.status(502).json({ success: false, error: 'Supabase Auth could not reset this account password.' });
       }
-      console.info('[ACCOUNTS] auth_password_reset_succeeded', { authUserId: target.authUserId });
+      console.info('[ACCOUNTS] auth_password_reset_succeeded', { authUserId });
       return res.json({ success: true });
     } catch (err: any) {
       console.error('[ACCOUNTS] password_reset_request_failed', {
@@ -778,6 +858,9 @@ export function createApp() {
         return res.status(403).json({ success: false, error: 'Only a Super Admin can modify a Super Admin account.' });
       }
       const payload = { ...req.body, id, authUserId: current.authUserId };
+      if (payload.role === 'super_admin' && !admin.isSuperAdmin) {
+        return res.status(403).json({ success: false, error: 'Administrators cannot assign the Super Admin role.' });
+      }
       if (!current.authUserId) {
         payload.authUserId = await inviteAuthUser(String(payload.email || current.email).trim().toLowerCase(), {
           username: payload.username || current.username,
@@ -810,11 +893,18 @@ export function createApp() {
       if (target?.role === 'super_admin' && !admin.isSuperAdmin) {
         return res.status(403).json({ success: false, error: 'Only a Super Admin can remove a Super Admin account.' });
       }
-      if (target?.authUserId) {
+      let authUserId = target?.authUserId;
+      if (!target && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+        if (!admin.isSuperAdmin) {
+          return res.status(403).json({ success: false, error: 'Only a Super Admin can remove an Auth user without an application profile.' });
+        }
+        authUserId = id;
+      }
+      if (authUserId) {
         if (!supabaseAdminClient) {
           return res.status(503).json({ success: false, error: getSupabaseAdminConfigError() });
         }
-        const { error } = await supabaseAdminClient.auth.admin.deleteUser(target.authUserId);
+        const { error } = await supabaseAdminClient.auth.admin.deleteUser(authUserId);
         if (error) throw error;
       }
       await deleteUserByUid(id);

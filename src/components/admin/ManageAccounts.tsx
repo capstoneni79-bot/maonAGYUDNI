@@ -196,7 +196,7 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
           </p>
         </div>
 
-        {currentUser?.role === 'super_admin' && <button
+        {(currentUser?.role === 'super_admin' || currentUser?.role === 'admin') && <button
           onClick={startAddNew}
           className="bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-sm transition cursor-pointer"
         >
@@ -456,7 +456,9 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
                           : 'bg-amber-100 text-amber-800'
                       }`}
                     >
-                      {u.role === 'admin'
+                      {u.role === 'super_admin'
+                        ? 'SUPER ADMINISTRATOR'
+                        : u.role === 'admin'
                         ? 'ADMINISTRATOR'
                         : u.role === 'focal'
                         ? 'FOCAL PERSON'
@@ -476,15 +478,16 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
                         u.active ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-stone-200 text-stone-600'
                       }`}
                     >
-                      {u.active ? 'ACTIVE' : 'DISABLED'}
+                      {u.status === 'pending' ? 'NO PROFILE' : u.active ? 'ACTIVE' : 'DISABLED'}
                     </span>
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-1.5">
                       <button
                         onClick={() => startEdit(u)}
+                        disabled={u.hasProfile === false}
                         className="p-1.5 rounded-lg text-stone-600 hover:bg-stone-200 transition cursor-pointer"
-                        title="Edit Account"
+                        title={u.hasProfile === false ? 'This Auth user has no application profile to edit' : 'Edit Account'}
                       >
                         <Edit className="w-3.5 h-3.5" />
                       </button>
@@ -501,8 +504,9 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
                       )}
                       <button
                         onClick={() => handleDelete(u.id, u.name)}
+                        disabled={u.hasProfile === false && currentUser?.role !== 'super_admin'}
                         className="p-1.5 rounded-lg text-red-600 hover:bg-red-100 transition cursor-pointer"
-                        title="Delete Account"
+                        title={u.hasProfile === false && currentUser?.role !== 'super_admin' ? 'Only a Super Admin can remove an Auth user without a profile' : 'Delete Account'}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>

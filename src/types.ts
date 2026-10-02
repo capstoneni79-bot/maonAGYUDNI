@@ -13,6 +13,7 @@ export interface UserAccount {
   isActive?: boolean;
   status?: 'active' | 'inactive' | 'pending' | 'suspended';
   authUserId?: string;
+  hasProfile?: boolean;
   permissions?: string[];
   assignedBarangay?: string; // required for focal person
   barangay_id?: string; // canonical reference id e.g. "brgy-bugho"

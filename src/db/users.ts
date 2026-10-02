@@ -45,6 +45,10 @@ export async function getUserByUsernameOrEmail(identifier: string): Promise<User
   if (rows.length > 0) {
     return mapDbToUser(rows[0]);
   }
+  if (UUID_REGEX.test(identifier)) {
+    const authLinkedRows = await db.select().from(users).where(eq(users.authUserId, identifier)).limit(1);
+    if (authLinkedRows.length > 0) return mapDbToUser(authLinkedRows[0]);
+  }
   // Also check if identifier matches prefix of email
   const all = await getAllUsers();
   return all.find(u => u.username === identifier || u.email.toLowerCase() === identifier.toLowerCase()) || null;
