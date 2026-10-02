@@ -66,6 +66,14 @@ export function createApp() {
     }
   };
 
+  const sanitizeSupabaseDiagnostic = (message: unknown): string => {
+    const value = typeof message === 'string' ? message : 'Unknown Supabase error';
+    return value
+      .replace(/sb_(?:secret|publishable)_[A-Za-z0-9_-]+/gi, '[redacted key]')
+      .replace(/eyJ[A-Za-z0-9_-]{20,}(?:\.[A-Za-z0-9_-]+){0,2}/g, '[redacted token]')
+      .slice(0, 300);
+  };
+
   const uuidForSyncOperation = (operationId: string): string => {
     const bytes = createHash('sha256').update(operationId).digest('hex').slice(0, 32).split('');
     bytes[12] = '5';
@@ -251,6 +259,35 @@ export function createApp() {
       databaseErrorCode = getDatabaseErrorCode(err);
       databaseErrorKind = getDatabaseErrorKind(err);
     }
+    let authAdminStatus: 'not_configured' | 'valid' | 'invalid' = 'not_configured';
+    let authAdminError: string | undefined;
+    if (supabaseAdminClient) {
+      try {
+        const { error } = await supabaseAdminClient.auth.admin.listUsers({ page: 1, perPage: 1 });
+        if (error) {
+          authAdminStatus = 'invalid';
+          authAdminError = sanitizeSupabaseDiagnostic(error.message);
+          console.error('[HEALTH] supabase_auth_admin_probe_failed', {
+            code: error.code || 'unknown',
+            status: error.status,
+            message: authAdminError,
+          });
+        } else {
+          authAdminStatus = 'valid';
+        }
+      } catch (error: any) {
+        authAdminStatus = 'invalid';
+        authAdminError = sanitizeSupabaseDiagnostic(error?.message);
+        console.error('[HEALTH] supabase_auth_admin_probe_failed', {
+          code: error?.code || 'unknown',
+          status: error?.status,
+          message: authAdminError,
+        });
+      }
+    } else {
+      authAdminError = getSupabaseAdminConfigError() || 'Supabase Auth Admin client is not initialized.';
+    }
+
     res.json({
       status: 'ok',
       service: 'hinunangan-swine-registry',
@@ -265,6 +302,8 @@ export function createApp() {
       ),
       supabase_auth_project_ref: supabaseAuthProjectRef,
       supabase_auth_admin_configured: Boolean(supabaseAdminClient),
+      supabase_auth_admin_status: authAdminStatus,
+      ...(authAdminError ? { supabase_auth_admin_error: authAdminError } : {}),
       database_project_ref: getConfiguredDatabaseProjectRef(),
       ...(databaseErrorCode ? { database_error_code: databaseErrorCode } : {}),
       ...(databaseErrorKind ? { database_error_kind: databaseErrorKind } : {}),
