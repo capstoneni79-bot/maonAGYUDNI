@@ -257,6 +257,7 @@ export function createApp() {
         process.env.SQL_HOST?.trim()
       ),
       supabase_auth_project_ref: supabaseAuthProjectRef,
+      supabase_auth_admin_configured: Boolean(supabaseAdminClient),
       database_project_ref: getConfiguredDatabaseProjectRef(),
       ...(databaseErrorCode ? { database_error_code: databaseErrorCode } : {}),
       ...(databaseErrorKind ? { database_error_kind: databaseErrorKind } : {}),
