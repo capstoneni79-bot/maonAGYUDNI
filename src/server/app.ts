@@ -597,7 +597,7 @@ export function createApp() {
     }
 
     try {
-      const profiles = await getAllUsers();
+      const allProfiles = await getAllUsers();
       let authUsers;
       try {
         authUsers = await listAllAuthUsers();
@@ -607,10 +607,15 @@ export function createApp() {
       }
 
       const profilesByAuthId = new Map(
-        profiles.filter(profile => profile.authUserId).map(profile => [profile.authUserId as string, profile])
+        allProfiles.filter(profile => profile.authUserId).map(profile => [profile.authUserId as string, profile])
       );
       const authIds = new Set(authUsers.map(authUser => authUser.id));
-      const merged = authUsers.map(authUser => {
+      const visibleAuthUsers = user.isSuperAdmin
+        ? authUsers
+        : authUsers.filter(authUser =>
+            profilesByAuthId.get(authUser.id)?.role !== 'super_admin' && authUser.user_metadata?.role !== 'super_admin'
+          );
+      const merged = visibleAuthUsers.map(authUser => {
         const profile = profilesByAuthId.get(authUser.id);
         if (profile) return { ...profile, hasProfile: true };
 
@@ -641,8 +646,8 @@ export function createApp() {
           phone: '',
         };
       });
-      const legacyProfiles = profiles
-        .filter(profile => !profile.authUserId || !authIds.has(profile.authUserId))
+      const legacyProfiles = allProfiles
+        .filter(profile => (user.isSuperAdmin || profile.role !== 'super_admin') && (!profile.authUserId || !authIds.has(profile.authUserId)))
         .map(profile => ({ ...profile, hasProfile: true }));
       const result = [...merged, ...legacyProfiles];
       return res.json({ success: true, count: result.length, data: result });

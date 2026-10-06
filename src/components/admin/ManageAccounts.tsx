@@ -177,8 +177,11 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
     }
   };
 
+  const visibleUsers = currentUser?.role === 'super_admin'
+    ? users
+    : users.filter(user => user.role !== 'super_admin');
   const q = searchTerm.toLowerCase();
-  const filtered = users.filter(u =>
+  const filtered = visibleUsers.filter(u =>
     (u.name || '').toLowerCase().includes(q) ||
     (u.username || '').toLowerCase().includes(q) ||
     (u.email || '').toLowerCase().includes(q) ||
@@ -427,7 +430,7 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
             />
           </div>
           <span className="text-xs text-stone-500 font-medium">
-            Total Accounts: <strong>{users.length}</strong>
+            Total Accounts: <strong>{visibleUsers.length}</strong>
           </span>
         </div>
 

@@ -373,6 +373,11 @@ export default function App() {
     const usersChannel = supabase.channel('user-accounts-realtime');
     usersChannel
       .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, (payload: any) => {
+        if (!isSuperAdmin && payload.new?.role === 'super_admin') {
+          const protectedId = String(payload.new.id || '');
+          setAccounts(current => current.filter(account => account.id !== protectedId));
+          return;
+        }
         if (accountsInitialLoadPendingRef.current) accountsRealtimeChangesRef.current.push(payload);
         setAccounts(current => applyAccountRealtimeChange(current, payload));
       })
@@ -395,13 +400,14 @@ export default function App() {
       accountsRealtimeChangesRef.current = [];
       void supabase.removeChannel(usersChannel);
     };
-  }, [accountsPageOpen, currentUser?.id, refreshAccounts]);
+  }, [accountsPageOpen, currentUser?.id, isSuperAdmin, refreshAccounts]);
 
   const handleAccountUpsert = useCallback((account: UserAccount) => {
+    if (currentUser?.role !== 'super_admin' && account.role === 'super_admin') return;
     const change = { eventType: 'UPDATE', new: account as unknown as Record<string, any> };
     if (accountsInitialLoadPendingRef.current) accountsRealtimeChangesRef.current.push(change);
     setAccounts(current => applyAccountRealtimeChange(current, change));
-  }, []);
+  }, [currentUser?.role]);
 
   const handleAccountDelete = useCallback((accountId: string) => {
     const change = { eventType: 'DELETE', old: { id: accountId } };
