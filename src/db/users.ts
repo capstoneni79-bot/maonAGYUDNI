@@ -10,10 +10,9 @@ export function mapDbToUser(row: any): UserAccount {
   const permissions = typeof row.permissions === 'string' ? JSON.parse(row.permissions) : row.permissions;
   const username = row.uid && !/^usr[-_]/i.test(String(row.uid))
     ? String(row.uid)
-    : (row.email ? row.email.split('@')[0] : `user-${row.id || row.uid || 'unknown'}`);
-  const recordId = row.id || row.uid || row.authUserId || 'unknown';
+    : (row.email ? row.email.split('@')[0] : `user-${row.id}`);
   return {
-    id: String(recordId),
+    id: String(row.uid || row.id),
     username,
     name: row.name || 'User',
     email: row.email,
@@ -40,19 +39,19 @@ export async function getUserByUsernameOrEmail(identifier: string): Promise<User
   const rows = await db
     .select()
     .from(users)
-    .where(or(eq(users.email, identifier), eq(users.uid, identifier), eq(users.id, identifier as any), eq(users.authUserId, identifier as any)))
+    .where(or(eq(users.email, identifier), eq(users.uid, identifier)))
     .limit(1);
 
   if (rows.length > 0) {
     return mapDbToUser(rows[0]);
   }
   if (UUID_REGEX.test(identifier)) {
-    const authLinkedRows = await db.select().from(users).where(eq(users.authUserId, identifier as any)).limit(1);
+    const authLinkedRows = await db.select().from(users).where(eq(users.authUserId, identifier)).limit(1);
     if (authLinkedRows.length > 0) return mapDbToUser(authLinkedRows[0]);
   }
   // Also check if identifier matches prefix of email
   const all = await getAllUsers();
-  return all.find(u => u.username === identifier || u.id === identifier || u.email.toLowerCase() === identifier.toLowerCase()) || null;
+  return all.find(u => u.username === identifier || u.email.toLowerCase() === identifier.toLowerCase()) || null;
 }
 
 export async function getUserByAuthUserId(authUserId: string): Promise<UserAccount | null> {
@@ -134,14 +133,7 @@ export async function insertUserProfile(user: Partial<UserAccount> & { uid: stri
 
 export async function deleteUserByUid(uid: string): Promise<boolean> {
   try {
-    if (UUID_REGEX.test(uid)) {
-      const matching = await db.select().from(users).where(or(eq(users.id, uid as any), eq(users.authUserId, uid as any), eq(users.uid, uid))).limit(1);
-      if (matching.length > 0) {
-        await db.delete(users).where(or(eq(users.id, matching[0].id), eq(users.uid, matching[0].uid), eq(users.authUserId, matching[0].authUserId ?? undefined as any)));
-        return true;
-      }
-    }
-    await db.delete(users).where(or(eq(users.uid, uid), eq(users.id, uid as any), eq(users.authUserId, uid as any)));
+    await db.delete(users).where(eq(users.uid, uid));
     return true;
   } catch (err) {
     console.error('Database error in deleteUserByUid:', err);

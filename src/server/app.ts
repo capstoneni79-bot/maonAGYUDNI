@@ -709,11 +709,15 @@ export function createApp() {
     if (role === 'focal' && !HINUNANGAN_BARANGAYS.some(b => b.name.toLowerCase() === assignedBarangay.toLowerCase())) {
       return res.status(400).json({ success: false, error: 'Select a valid designated barangay for a Focal Person.' });
     }
-    if (initialPassword.length !== 6) {
-      return res.status(400).json({ success: false, error: 'Password must be exactly 6 characters.' });
+    if (initialPassword.length < 12 ||
+      !/[a-z]/.test(initialPassword) ||
+      !/[A-Z]/.test(initialPassword) ||
+      !/\d/.test(initialPassword) ||
+      !/[^A-Za-z0-9]/.test(initialPassword)) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 12 characters and include uppercase, lowercase, number, and symbol characters.' });
     }
     if (initialPassword !== confirmPassword) {
-      return res.status(400).json({ success: false, error: 'Passwords do not match.' });
+      return res.status(400).json({ success: false, error: 'Password and confirmation do not match.' });
     }
     if (typeof payload.active !== 'boolean') {
       return res.status(400).json({ success: false, error: 'Account active status is required.' });

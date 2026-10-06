@@ -82,12 +82,12 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
       return;
     }
     if (isAddingNew) {
-      if (initialPassword.length !== 6) {
-        setSaveError('Password must be exactly 6 characters.');
+      if (initialPassword.length < 12 || !/[a-z]/.test(initialPassword) || !/[A-Z]/.test(initialPassword) || !/\d/.test(initialPassword) || !/[^A-Za-z0-9]/.test(initialPassword)) {
+        setSaveError('Use at least 12 characters with uppercase, lowercase, number, and symbol characters.');
         return;
       }
       if (initialPassword !== confirmPassword) {
-        setSaveError('Passwords do not match.');
+        setSaveError('Initial password and confirmation do not match.');
         return;
       }
     }
@@ -324,7 +324,7 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
                     </button>
                   </div>
                 </div>
-                <p className="sm:col-span-3 -mt-2 text-[11px] text-stone-500">Password must be exactly 6 characters.</p>
+                <p className="sm:col-span-3 -mt-2 text-[11px] text-stone-500">At least 12 characters, including uppercase, lowercase, a number, and a symbol.</p>
               </>
             )}
 
