@@ -364,6 +364,19 @@ CREATE POLICY registry_schema_service_role ON registry_schema FOR ALL TO service
 CREATE POLICY registry_schema_select_scope ON registry_schema FOR SELECT TO authenticated USING (true);
 CREATE POLICY registry_schema_manage_admin ON registry_schema FOR ALL TO authenticated USING (public.is_app_admin()) WITH CHECK (public.is_app_admin());
 
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    RAISE EXCEPTION 'Supabase publication supabase_realtime is required for account realtime';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'users'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.users;
+  END IF;
+END $$;
+
 -- ============================================================================
 -- End of Supabase Schema Initialization
 -- ============================================================================

@@ -12,7 +12,7 @@ export function mapDbToUser(row: any): UserAccount {
     ? String(row.uid)
     : (row.email ? row.email.split('@')[0] : `user-${row.id}`);
   return {
-    id: String(row.uid || row.id),
+    id: String(row.id || row.uid),
     username,
     name: row.name || 'User',
     email: row.email,
@@ -46,8 +46,8 @@ export async function getUserByUsernameOrEmail(identifier: string): Promise<User
     return mapDbToUser(rows[0]);
   }
   if (UUID_REGEX.test(identifier)) {
-    const authLinkedRows = await db.select().from(users).where(eq(users.authUserId, identifier)).limit(1);
-    if (authLinkedRows.length > 0) return mapDbToUser(authLinkedRows[0]);
+    const idRows = await db.select().from(users).where(or(eq(users.id, identifier as any), eq(users.authUserId, identifier as any))).limit(1);
+    if (idRows.length > 0) return mapDbToUser(idRows[0]);
   }
   // Also check if identifier matches prefix of email
   const all = await getAllUsers();
@@ -61,7 +61,7 @@ export async function getUserByAuthUserId(authUserId: string): Promise<UserAccou
 
 export async function upsertUser(user: Partial<UserAccount>): Promise<UserAccount> {
   try {
-    const uid = (user as any).uid || (user.id && !UUID_REGEX.test(user.id) ? user.id : `usr-${Date.now()}`);
+    const uid = (user as any).uid || user.username || (user.id && !UUID_REGEX.test(user.id) ? user.id : `usr-${Date.now()}`);
     const email = user.email || `${user.username || 'user'}@hinunangan.da.gov.ph`;
     
     // Ensure primary key id is ALWAYS a valid UUID
@@ -95,7 +95,7 @@ export async function upsertUser(user: Partial<UserAccount>): Promise<UserAccoun
       .insert(users)
       .values(values)
       .onConflictDoUpdate({
-        target: users.uid,
+        target: users.id,
         set: values,
       })
       .returning();
@@ -133,7 +133,11 @@ export async function insertUserProfile(user: Partial<UserAccount> & { uid: stri
 
 export async function deleteUserByUid(uid: string): Promise<boolean> {
   try {
-    await db.delete(users).where(eq(users.uid, uid));
+    if (UUID_REGEX.test(uid)) {
+      await db.delete(users).where(or(eq(users.uid, uid), eq(users.id, uid as any), eq(users.authUserId, uid as any)));
+    } else {
+      await db.delete(users).where(eq(users.uid, uid));
+    }
     return true;
   } catch (err) {
     console.error('Database error in deleteUserByUid:', err);

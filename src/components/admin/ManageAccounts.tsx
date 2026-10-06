@@ -6,13 +6,14 @@ import { accountsApi } from '../../services/api';
 interface ManageAccountsProps {
   users: UserAccount[];
   barangays: Barangay[];
-  onRefresh: () => void;
   currentUser?: UserAccount | null;
   isLoading?: boolean;
   loadError?: string | null;
+  onAccountUpsert: (account: UserAccount) => void;
+  onAccountDelete: (accountId: string) => void;
 }
 
-export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays, onRefresh, currentUser, isLoading = false, loadError = null }) => {
+export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays, currentUser, isLoading = false, loadError = null, onAccountUpsert, onAccountDelete }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isEditing, setIsEditing] = useState<UserAccount | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
@@ -95,8 +96,7 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
     setSaveError('');
     try {
     if (isAddingNew) {
-      const newAcc: UserAccount = {
-        id: 'usr-' + Date.now(),
+      const newAcc: Partial<UserAccount> = {
         name: name.trim(),
         username: username.trim().toLowerCase(),
         email: email.trim().toLowerCase(),
@@ -105,9 +105,9 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
         contactNo: contactNo.trim(),
         phone: contactNo.trim(),
         active,
-        createdAt: new Date().toISOString(),
       };
-      await accountsApi.create({ ...newAcc, initialPassword, confirmPassword });
+      const savedAccount = await accountsApi.create({ ...newAcc, initialPassword, confirmPassword });
+      onAccountUpsert(savedAccount);
     } else if (isEditing) {
       const updatedAcc: UserAccount = {
         ...isEditing,
@@ -119,7 +119,8 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
         contactNo: contactNo.trim(),
         active,
       };
-      await accountsApi.update(updatedAcc.id, updatedAcc);
+      const savedAccount = await accountsApi.update(updatedAcc.id, updatedAcc);
+      onAccountUpsert(savedAccount);
     }
 
     setIsEditing(null);
@@ -128,7 +129,6 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
     setConfirmPassword('');
     setShowInitialPassword(false);
     setShowConfirmPassword(false);
-    await onRefresh();
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Unable to save account to database.');
     }
@@ -170,7 +170,7 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
     if (window.confirm(`Are you sure you want to remove account "${accName}"?`)) {
       try {
         await accountsApi.delete(id);
-        await onRefresh();
+        onAccountDelete(id);
       } catch (error) {
         setSaveError(error instanceof Error ? error.message : 'Unable to delete account from database.');
       }
@@ -427,7 +427,7 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
             />
           </div>
           <span className="text-xs text-stone-500 font-medium">
-            Total Accounts: <strong>{filtered.length}</strong>
+            Total Accounts: <strong>{users.length}</strong>
           </span>
         </div>
 

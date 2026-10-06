@@ -76,6 +76,7 @@ export const BiosecurityAssistant: React.FC<BiosecurityAssistantProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLElement>(null);
+  const launcherRef = useRef<HTMLButtonElement>(null);
 
   const BUTTON_SIZE = 60;
   const DEFAULT_LAUNCHER_POSITION = () => ({
@@ -89,7 +90,6 @@ export const BiosecurityAssistant: React.FC<BiosecurityAssistantProps> = ({
   const dragStartRef = useRef<{ startX: number; startY: number; panelLeft: number; panelTop: number; pointerId: number } | null>(null);
   const launcherDragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number; hasMoved: boolean } | null>(null);
   const hasMovedRef = useRef(false);
-  const ignoreNextLaunchClickRef = useRef(false);
 
   const clampWithinViewport = (x: number, y: number, width = BUTTON_SIZE, height = BUTTON_SIZE) => {
     const margin = 12;
@@ -101,18 +101,34 @@ export const BiosecurityAssistant: React.FC<BiosecurityAssistantProps> = ({
     };
   };
 
-  // Keep assistant panel and launcher clamped within viewport on resize
+  const openAssistant = () => {
+    const panelWidth = window.innerWidth >= 640 ? 440 : Math.max(0, window.innerWidth - 24);
+    const panelHeight = Math.min(580, window.innerHeight * 0.85);
+    setPosition(prev => clampWithinViewport(prev.x, prev.y, panelWidth, panelHeight));
+    setIsOpen(true);
+    setIsMinimized(false);
+  };
+
+  // Clamp the visible assistant surface when the viewport changes.
   useEffect(() => {
     const handleResize = () => {
+      const visibleSurface = isOpen ? panelRef.current : launcherRef.current;
+      const width = visibleSurface?.offsetWidth || (isOpen
+        ? (window.innerWidth >= 640 ? 440 : Math.max(0, window.innerWidth - 24))
+        : BUTTON_SIZE);
+      const height = visibleSurface?.offsetHeight || (isOpen
+        ? (isMinimized ? 64 : Math.min(580, window.innerHeight * 0.85))
+        : BUTTON_SIZE);
       setPosition(prev => {
-        const clamped = clampWithinViewport(prev.x, prev.y, BUTTON_SIZE, BUTTON_SIZE);
+        const clamped = clampWithinViewport(prev.x, prev.y, width, height);
         return clamped.x !== prev.x || clamped.y !== prev.y ? clamped : prev;
       });
     };
 
     window.addEventListener('resize', handleResize);
+    handleResize();
     return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  }, [isOpen, isMinimized]);
 
   const handleLauncherPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -134,9 +150,11 @@ export const BiosecurityAssistant: React.FC<BiosecurityAssistantProps> = ({
     if (!launcherDragRef.current || launcherDragRef.current.pointerId !== e.pointerId) return;
     const dx = e.clientX - launcherDragRef.current.startX;
     const dy = e.clientY - launcherDragRef.current.startY;
-    if (Math.abs(dx) + Math.abs(dy) > 8) {
+    if (Math.hypot(dx, dy) > 8) {
       launcherDragRef.current.hasMoved = true;
-      const next = clampWithinViewport(launcherDragRef.current.originX + dx, launcherDragRef.current.originY + dy, BUTTON_SIZE, BUTTON_SIZE);
+      const width = launcherRef.current?.offsetWidth || BUTTON_SIZE;
+      const height = launcherRef.current?.offsetHeight || BUTTON_SIZE;
+      const next = clampWithinViewport(launcherDragRef.current.originX + dx, launcherDragRef.current.originY + dy, width, height);
       setPosition(next);
     }
   };
@@ -149,10 +167,14 @@ export const BiosecurityAssistant: React.FC<BiosecurityAssistantProps> = ({
     } catch {}
     const didDrag = dragState.hasMoved;
     launcherDragRef.current = null;
-    ignoreNextLaunchClickRef.current = didDrag;
     if (!didDrag) {
-      setIsOpen(true);
-      setIsMinimized(false);
+      openAssistant();
+    }
+  };
+
+  const handleLauncherPointerCancel = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (launcherDragRef.current?.pointerId === e.pointerId) {
+      launcherDragRef.current = null;
     }
   };
 
@@ -568,19 +590,14 @@ I am connected to your live municipal swine database, GIS coordinates, ASF risk 
       ───────────────────────────────────────────────────────────── */}
       {!isOpen && (
         <button
+          ref={launcherRef}
           type="button"
           onPointerDown={handleLauncherPointerDown}
           onPointerMove={handleLauncherPointerMove}
           onPointerUp={handleLauncherPointerUp}
-          onPointerCancel={handleLauncherPointerUp}
-          onClick={() => {
-            if (ignoreNextLaunchClickRef.current) {
-              ignoreNextLaunchClickRef.current = false;
-              return;
-            }
-            if (launcherDragRef.current?.hasMoved) return;
-            setIsOpen(true);
-            setIsMinimized(false);
+          onPointerCancel={handleLauncherPointerCancel}
+          onClick={event => {
+            if (event.detail === 0) openAssistant();
           }}
           aria-label="Open Biosecurity Assistant"
           title="Open Biosecurity Assistant"
@@ -620,7 +637,7 @@ I am connected to your live municipal swine database, GIS coordinates, ASF risk 
               ? 'DA Hinunangan Super Admin Configuration Assistant Panel'
               : 'DA Hinunangan Biosecurity Assistant Panel'
           }
-          className={`fixed z-40 w-[94vw] sm:w-[440px] bg-white rounded-3xl shadow-2xl border border-stone-200 flex flex-col overflow-hidden transition-[height] duration-200 ease-in-out ${
+          className={`fixed z-40 w-[calc(100vw-24px)] sm:w-[440px] bg-white rounded-3xl shadow-2xl border border-stone-200 flex flex-col overflow-hidden transition-[height] duration-200 ease-in-out ${
             position ? '' : 'bottom-4 right-4 sm:bottom-6 sm:right-6'
           } ${
             isMinimized ? 'h-14 sm:h-16' : 'h-[580px] max-h-[85vh]'

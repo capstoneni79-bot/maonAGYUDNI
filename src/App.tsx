@@ -63,22 +63,43 @@ const normalizeAccountRecord = (row: Partial<UserAccount> & Record<string, any>)
   const userId = typeof row.id === 'string' && row.id ? row.id : (typeof row.uid === 'string' ? row.uid : undefined);
   if (!userId && !row.email && !row.username) return null;
   return {
-    id: String(userId || row.uid || row.email || `user-${Date.now()}`),
+    ...row,
+    id: String(userId || row.email || row.username),
     username: String(row.username || row.uid || (typeof row.email === 'string' ? row.email.split('@')[0] : 'user')),
     name: String(row.name || row.full_name || row.fullName || 'User'),
+    fullName: row.fullName || row.full_name || row.name || undefined,
     email: String(row.email || ''),
     role: (row.role || 'focal') as UserRole,
     phone: String(row.phone || row.contactNo || row.phone_number || ''),
     contactNo: String(row.contactNo || row.phone || row.phone_number || ''),
     assignedBarangay: row.assignedBarangay || row.assigned_barangay || undefined,
+    barangay_id: row.barangay_id || row.assigned_barangay_id || undefined,
     authUserId: row.authUserId || row.auth_user_id || undefined,
     active: Boolean(active),
     isActive: row.isActive ?? row.is_active ?? Boolean(active),
     status: row.status || (active === false ? 'inactive' : 'active'),
     permissions: Array.isArray(permissions) ? permissions : [],
+    avatarUrl: row.avatarUrl || row.avatar_url || undefined,
     createdAt: row.createdAt || row.created_at || new Date().toISOString(),
     hasProfile: row.hasProfile ?? true,
   };
+};
+
+const applyAccountRealtimeChange = (
+  accounts: UserAccount[],
+  payload: { eventType: string; new?: Record<string, any>; old?: Record<string, any> }
+): UserAccount[] => {
+  if (payload.eventType === 'DELETE') {
+    const deletedId = payload.old?.id;
+    if (deletedId === undefined || deletedId === null) return accounts;
+    return accounts.filter(account => account.id !== String(deletedId));
+  }
+
+  const nextAccount = normalizeAccountRecord(payload.new || {});
+  if (!nextAccount) return accounts;
+  const existingIndex = accounts.findIndex(account => account.id === nextAccount.id);
+  if (existingIndex < 0) return [nextAccount, ...accounts];
+  return accounts.map(account => account.id === nextAccount.id ? { ...account, ...nextAccount } : account);
 };
 
 export default function App() {
@@ -115,6 +136,8 @@ export default function App() {
   const [accountsLoading, setAccountsLoading] = useState(false);
   const [accountsError, setAccountsError] = useState<string | null>(null);
   const accountsRefreshRequestRef = useRef(0);
+  const accountsInitialLoadPendingRef = useRef(false);
+  const accountsRealtimeChangesRef = useRef<Array<{ eventType: string; new?: Record<string, any>; old?: Record<string, any> }>>([]);
   const [interfaceBg, setInterfaceBg] = useState<BackgroundPhotoConfig | null>(() => {
     try {
       return landingCmsService.getDraftConfig().interfaceBackground || null;
@@ -214,17 +237,26 @@ export default function App() {
   const refreshAccounts = useCallback(async () => {
     const isUserAdmin = currentUser?.role === 'super_admin' || currentUser?.role === 'admin';
     if (!isUserAdmin) {
+      accountsRefreshRequestRef.current += 1;
+      accountsInitialLoadPendingRef.current = false;
+      accountsRealtimeChangesRef.current = [];
       setAccounts([]);
+      setAccountsLoading(false);
       setAccountsError(null);
       return;
     }
 
     const requestId = ++accountsRefreshRequestRef.current;
+    if (!accountsInitialLoadPendingRef.current) accountsRealtimeChangesRef.current = [];
+    accountsInitialLoadPendingRef.current = true;
     setAccountsLoading(true);
     try {
       const recordList = await accountsApi.getAll();
       if (requestId !== accountsRefreshRequestRef.current) return;
-      setAccounts(recordList.map(record => normalizeAccountRecord(record)).filter((record): record is UserAccount => Boolean(record)));
+      const loadedAccounts = recordList.map(record => normalizeAccountRecord(record)).filter((record): record is UserAccount => Boolean(record));
+      const pendingChanges = accountsRealtimeChangesRef.current;
+      setAccounts(pendingChanges.reduce(applyAccountRealtimeChange, loadedAccounts));
+      accountsRealtimeChangesRef.current = [];
       setAccountsError(null);
     } catch (error) {
       console.error('Unable to refresh user accounts from database:', error);
@@ -232,6 +264,8 @@ export default function App() {
       setAccountsError('Unable to load accounts.');
     } finally {
       if (requestId === accountsRefreshRequestRef.current) {
+        accountsInitialLoadPendingRef.current = false;
+        accountsRealtimeChangesRef.current = [];
         setAccountsLoading(false);
       }
     }
@@ -254,8 +288,6 @@ export default function App() {
       console.error('Unable to refresh barangays from database:', error);
       setBarangays([]);
     }
-
-    await refreshAccounts();
 
     try {
       const { records } = await storageService.fetchSwineRecords();
@@ -315,53 +347,67 @@ export default function App() {
     return () => window.removeEventListener('swine_records_updated', handleSwineUpdate);
   }, []);
 
+  const accountsPageOpen = activeTab === 'accounts' && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin');
   useEffect(() => {
-    if (!supabase || !currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'super_admin')) return;
+    if (!accountsPageOpen) {
+      accountsRefreshRequestRef.current += 1;
+      accountsInitialLoadPendingRef.current = false;
+      accountsRealtimeChangesRef.current = [];
+      setAccounts([]);
+      setAccountsLoading(false);
+      setAccountsError(null);
+      return;
+    }
+    if (!supabase) {
+      setAccounts([]);
+      setAccountsError('Supabase Realtime is unavailable.');
+      setAccountsLoading(false);
+      return;
+    }
 
-    const usersChannel = supabase.channel('public-users-realtime');
+    let active = true;
+    let lastStatus: string | null = null;
+    setAccountsLoading(true);
+    setAccountsError(null);
+    accountsRealtimeChangesRef.current = [];
+    const usersChannel = supabase.channel('user-accounts-realtime');
     usersChannel
       .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, (payload: any) => {
-        const nextUser = normalizeAccountRecord(payload.new || payload.old);
-        if (!nextUser) return;
-
-        if (payload.eventType === 'INSERT') {
-          setAccounts(current => {
-            const existing = current.findIndex(user => user.id === nextUser.id || (user.authUserId && nextUser.authUserId && user.authUserId === nextUser.authUserId) || (user.username && user.username === nextUser.username));
-            if (existing >= 0) {
-              return current.map(user => user.id === nextUser.id || (user.authUserId && nextUser.authUserId && user.authUserId === nextUser.authUserId) ? { ...user, ...nextUser } : user);
-            }
-            return [nextUser, ...current];
-          });
-          return;
-        }
-
-        if (payload.eventType === 'UPDATE') {
-          setAccounts(current => current.map(user => {
-            if (user.id === nextUser.id || (user.authUserId && nextUser.authUserId && user.authUserId === nextUser.authUserId)) {
-              return { ...user, ...nextUser };
-            }
-            return user;
-          }));
-          return;
-        }
-
-        if (payload.eventType === 'DELETE') {
-          const deletedUser = normalizeAccountRecord(payload.old);
-          if (!deletedUser) return;
-          setAccounts(current => current.filter(user => {
-            if (user.id === deletedUser.id) return false;
-            if (user.authUserId && deletedUser.authUserId && user.authUserId === deletedUser.authUserId) return false;
-            if (user.username && deletedUser.username && user.username === deletedUser.username) return false;
-            return true;
-          }));
-        }
+        if (accountsInitialLoadPendingRef.current) accountsRealtimeChangesRef.current.push(payload);
+        setAccounts(current => applyAccountRealtimeChange(current, payload));
       })
-      .subscribe();
+      .subscribe(status => {
+        if (!active) return;
+        if (status === 'SUBSCRIBED' && lastStatus !== 'SUBSCRIBED') {
+          setAccountsError(null);
+          void refreshAccounts();
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setAccountsError(`Unable to subscribe to account changes (${status}).`);
+          setAccountsLoading(false);
+        }
+        lastStatus = status;
+      });
 
     return () => {
-      supabase.removeChannel(usersChannel);
+      active = false;
+      accountsRefreshRequestRef.current += 1;
+      accountsInitialLoadPendingRef.current = false;
+      accountsRealtimeChangesRef.current = [];
+      void supabase.removeChannel(usersChannel);
     };
-  }, [currentUser]);
+  }, [accountsPageOpen, currentUser?.id, refreshAccounts]);
+
+  const handleAccountUpsert = useCallback((account: UserAccount) => {
+    const change = { eventType: 'UPDATE', new: account as unknown as Record<string, any> };
+    if (accountsInitialLoadPendingRef.current) accountsRealtimeChangesRef.current.push(change);
+    setAccounts(current => applyAccountRealtimeChange(current, change));
+  }, []);
+
+  const handleAccountDelete = useCallback((accountId: string) => {
+    const change = { eventType: 'DELETE', old: { id: accountId } };
+    if (accountsInitialLoadPendingRef.current) accountsRealtimeChangesRef.current.push(change);
+    setAccounts(current => current.filter(account => account.id !== accountId));
+  }, []);
 
   useEffect(() => {
     const handleCmsUpdate = (e: Event) => {
@@ -954,10 +1000,11 @@ export default function App() {
                 <ManageAccounts
                   users={accounts}
                   barangays={barangays}
-                  onRefresh={refreshAllData}
                   currentUser={currentUser}
                   isLoading={accountsLoading}
                   loadError={accountsError}
+                  onAccountUpsert={handleAccountUpsert}
+                  onAccountDelete={handleAccountDelete}
                 />
               ) : (
                 <AccessDenied403
