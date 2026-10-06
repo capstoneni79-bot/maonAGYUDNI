@@ -8,9 +8,11 @@ interface ManageAccountsProps {
   barangays: Barangay[];
   onRefresh: () => void;
   currentUser?: UserAccount | null;
+  isLoading?: boolean;
+  loadError?: string | null;
 }
 
-export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays, onRefresh, currentUser }) => {
+export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays, onRefresh, currentUser, isLoading = false, loadError = null }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isEditing, setIsEditing] = useState<UserAccount | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
@@ -80,12 +82,12 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
       return;
     }
     if (isAddingNew) {
-      if (initialPassword !== confirmPassword) {
-        setSaveError('Initial password and confirmation do not match.');
+      if (initialPassword.length !== 6) {
+        setSaveError('Password must be exactly 6 characters.');
         return;
       }
-      if (initialPassword.length < 12 || !/[a-z]/.test(initialPassword) || !/[A-Z]/.test(initialPassword) || !/\d/.test(initialPassword) || !/[^A-Za-z0-9]/.test(initialPassword)) {
-        setSaveError('Use at least 12 characters with uppercase, lowercase, number, and symbol characters.');
+      if (initialPassword !== confirmPassword) {
+        setSaveError('Passwords do not match.');
         return;
       }
     }
@@ -124,6 +126,8 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
     setIsAddingNew(false);
     setInitialPassword('');
     setConfirmPassword('');
+    setShowInitialPassword(false);
+    setShowConfirmPassword(false);
     await onRefresh();
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Unable to save account to database.');
@@ -320,7 +324,7 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
                     </button>
                   </div>
                 </div>
-                <p className="sm:col-span-3 -mt-2 text-[11px] text-stone-500">At least 12 characters, including uppercase, lowercase, a number, and a symbol.</p>
+                <p className="sm:col-span-3 -mt-2 text-[11px] text-stone-500">Password must be exactly 6 characters.</p>
               </>
             )}
 
@@ -427,96 +431,110 @@ export const ManageAccounts: React.FC<ManageAccountsProps> = ({ users, barangays
           </span>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-stone-100/80 text-stone-700 font-semibold border-b border-stone-200 uppercase text-[10px] tracking-wider">
-              <tr>
-                <th className="py-3 px-4">Account Name</th>
-                <th className="py-3 px-4">Role</th>
-                <th className="py-3 px-4">Assigned Jurisdiction</th>
-                <th className="py-3 px-4">Login Email / Username</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-stone-200">
-              {filtered.map(u => (
-                <tr key={u.id} className="hover:bg-stone-50">
-                  <td className="py-3 px-4">
-                    <div className="font-bold text-stone-900">{u.name}</div>
-                    <div className="text-[10px] text-stone-400">{u.contactNo || 'No contact'}</div>
-                  </td>
-                  <td className="py-3 px-4">
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        u.role === 'admin'
-                          ? 'bg-purple-100 text-purple-800'
-                          : u.role === 'focal'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}
-                    >
-                      {u.role === 'super_admin'
-                        ? 'SUPER ADMINISTRATOR'
-                        : u.role === 'admin'
-                        ? 'ADMINISTRATOR'
-                        : u.role === 'focal'
-                        ? 'FOCAL PERSON'
-                        : 'AGENT / TRADER'}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 font-medium text-stone-800">
-                    {u.role === 'focal' ? `Brgy. ${u.assignedBarangay}` : 'Municipal-Wide'}
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="font-mono text-stone-800">{u.username}</div>
-                    <div className="text-[11px] text-stone-500">{u.email}</div>
-                  </td>
-                  <td className="py-3 px-4">
-                    <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        u.active ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-stone-200 text-stone-600'
-                      }`}
-                    >
-                      {u.status === 'pending' ? 'NO PROFILE' : u.active ? 'ACTIVE' : 'DISABLED'}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <button
-                        onClick={() => startEdit(u)}
-                        disabled={u.hasProfile === false}
-                        className="p-1.5 rounded-lg text-stone-600 hover:bg-stone-200 transition cursor-pointer"
-                        title={u.hasProfile === false ? 'This Auth user has no application profile to edit' : 'Edit Account'}
-                      >
-                        <Edit className="w-3.5 h-3.5" />
-                      </button>
-                      {currentUser?.role === 'super_admin' && u.authUserId && (
-                        <button
-                          type="button"
-                          onClick={() => { setResetTarget(u); setResetPassword(''); setConfirmResetPassword(''); setShowNewPassword(false); setShowConfirmNewPassword(false); setResetError(''); }}
-                          className="p-1.5 rounded-lg text-amber-700 hover:bg-amber-100 transition cursor-pointer"
-                          title="Reset Password"
-                          aria-label={`Reset password for ${u.name}`}
-                        >
-                          <Key className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleDelete(u.id, u.name)}
-                        disabled={u.hasProfile === false && currentUser?.role !== 'super_admin'}
-                        className="p-1.5 rounded-lg text-red-600 hover:bg-red-100 transition cursor-pointer"
-                        title={u.hasProfile === false && currentUser?.role !== 'super_admin' ? 'Only a Super Admin can remove an Auth user without a profile' : 'Delete Account'}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </td>
+        {loadError && (
+          <div className="px-4 py-3 text-sm text-red-700 bg-red-50 border-b border-red-200">{loadError}</div>
+        )}
+
+        {isLoading && !loadError && (
+          <div className="px-4 py-6 text-sm text-stone-600">Loading accounts...</div>
+        )}
+
+        {!isLoading && !loadError && filtered.length === 0 && (
+          <div className="px-4 py-6 text-sm text-stone-600">No accounts found.</div>
+        )}
+
+        {!isLoading && !loadError && filtered.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-stone-100/80 text-stone-700 font-semibold border-b border-stone-200 uppercase text-[10px] tracking-wider">
+                <tr>
+                  <th className="py-3 px-4">Account Name</th>
+                  <th className="py-3 px-4">Role</th>
+                  <th className="py-3 px-4">Assigned Jurisdiction</th>
+                  <th className="py-3 px-4">Login Email / Username</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-stone-200">
+                {filtered.map(u => (
+                  <tr key={u.id} className="hover:bg-stone-50">
+                    <td className="py-3 px-4">
+                      <div className="font-bold text-stone-900">{u.name}</div>
+                      <div className="text-[10px] text-stone-400">{u.contactNo || 'No contact'}</div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          u.role === 'admin'
+                            ? 'bg-purple-100 text-purple-800'
+                            : u.role === 'focal'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {u.role === 'super_admin'
+                          ? 'SUPER ADMINISTRATOR'
+                          : u.role === 'admin'
+                          ? 'ADMINISTRATOR'
+                          : u.role === 'focal'
+                          ? 'FOCAL PERSON'
+                          : 'AGENT / TRADER'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 font-medium text-stone-800">
+                      {u.role === 'focal' ? `Brgy. ${u.assignedBarangay}` : 'Municipal-Wide'}
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="font-mono text-stone-800">{u.username}</div>
+                      <div className="text-[11px] text-stone-500">{u.email}</div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          u.active ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-stone-200 text-stone-600'
+                        }`}
+                      >
+                        {u.status === 'pending' ? 'NO PROFILE' : u.active ? 'ACTIVE' : 'DISABLED'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => startEdit(u)}
+                          disabled={u.hasProfile === false}
+                          className="p-1.5 rounded-lg text-stone-600 hover:bg-stone-200 transition cursor-pointer"
+                          title={u.hasProfile === false ? 'This Auth user has no application profile to edit' : 'Edit Account'}
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        {currentUser?.role === 'super_admin' && u.authUserId && (
+                          <button
+                            type="button"
+                            onClick={() => { setResetTarget(u); setResetPassword(''); setConfirmResetPassword(''); setShowNewPassword(false); setShowConfirmNewPassword(false); setResetError(''); }}
+                            className="p-1.5 rounded-lg text-amber-700 hover:bg-amber-100 transition cursor-pointer"
+                            title="Reset Password"
+                            aria-label={`Reset password for ${u.name}`}
+                          >
+                            <Key className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDelete(u.id, u.name)}
+                          disabled={u.hasProfile === false && currentUser?.role !== 'super_admin'}
+                          className="p-1.5 rounded-lg text-red-600 hover:bg-red-100 transition cursor-pointer"
+                          title={u.hasProfile === false && currentUser?.role !== 'super_admin' ? 'Only a Super Admin can remove an Auth user without a profile' : 'Delete Account'}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

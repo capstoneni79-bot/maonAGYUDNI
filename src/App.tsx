@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, Suspense, lazy, useRef, useCallback } from 'react';
 import { Header } from './components/common/Header';
 import { Sidebar } from './components/common/Sidebar';
 import { OfflineBanner } from './components/common/OfflineBanner';
@@ -13,6 +13,7 @@ import { landingCmsService } from './services/landingCmsService';
 import { BackgroundPhotoConfig } from './types/landingCms';
 import { Barangay, LandingPageConfig, SwineRecord, UserAccount, UserRole } from './types';
 import { useRoleTheme } from './hooks/useRoleTheme';
+import { supabase } from './lib/supabase';
 
 // Route-level code-splitting for large modules & GIS/Export libraries
 const LandingPage = lazy(() => import('./components/landing/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -51,6 +52,35 @@ const ViewLoader: React.FC = () => (
   </div>
 );
 
+const normalizeAccountRecord = (row: Partial<UserAccount> & Record<string, any>): UserAccount | null => {
+  if (!row) return null;
+  const permissions = Array.isArray(row.permissions)
+    ? row.permissions
+    : typeof row.permissions === 'string'
+      ? (() => { try { return JSON.parse(row.permissions); } catch { return []; } })()
+      : [];
+  const active = row.active ?? row.isActive ?? row.is_active ?? true;
+  const userId = typeof row.id === 'string' && row.id ? row.id : (typeof row.uid === 'string' ? row.uid : undefined);
+  if (!userId && !row.email && !row.username) return null;
+  return {
+    id: String(userId || row.uid || row.email || `user-${Date.now()}`),
+    username: String(row.username || row.uid || (typeof row.email === 'string' ? row.email.split('@')[0] : 'user')),
+    name: String(row.name || row.full_name || row.fullName || 'User'),
+    email: String(row.email || ''),
+    role: (row.role || 'focal') as UserRole,
+    phone: String(row.phone || row.contactNo || row.phone_number || ''),
+    contactNo: String(row.contactNo || row.phone || row.phone_number || ''),
+    assignedBarangay: row.assignedBarangay || row.assigned_barangay || undefined,
+    authUserId: row.authUserId || row.auth_user_id || undefined,
+    active: Boolean(active),
+    isActive: row.isActive ?? row.is_active ?? Boolean(active),
+    status: row.status || (active === false ? 'inactive' : 'active'),
+    permissions: Array.isArray(permissions) ? permissions : [],
+    createdAt: row.createdAt || row.created_at || new Date().toISOString(),
+    hasProfile: row.hasProfile ?? true,
+  };
+};
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [currentRole, setCurrentRole] = useState<UserRole | 'landing'>('landing');
@@ -82,6 +112,9 @@ export default function App() {
   const [barangays, setBarangays] = useState<Barangay[]>([]);
   const [landingConfig, setLandingConfig] = useState<LandingPageConfig>(() => storageService.getLandingConfig());
   const [accounts, setAccounts] = useState<UserAccount[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [accountsError, setAccountsError] = useState<string | null>(null);
+  const accountsRefreshRequestRef = useRef(0);
   const [interfaceBg, setInterfaceBg] = useState<BackgroundPhotoConfig | null>(() => {
     try {
       return landingCmsService.getDraftConfig().interfaceBackground || null;
@@ -178,6 +211,32 @@ export default function App() {
     return () => { active = false; };
   }, []);
 
+  const refreshAccounts = useCallback(async () => {
+    const isUserAdmin = currentUser?.role === 'super_admin' || currentUser?.role === 'admin';
+    if (!isUserAdmin) {
+      setAccounts([]);
+      setAccountsError(null);
+      return;
+    }
+
+    const requestId = ++accountsRefreshRequestRef.current;
+    setAccountsLoading(true);
+    try {
+      const recordList = await accountsApi.getAll();
+      if (requestId !== accountsRefreshRequestRef.current) return;
+      setAccounts(recordList.map(record => normalizeAccountRecord(record)).filter((record): record is UserAccount => Boolean(record)));
+      setAccountsError(null);
+    } catch (error) {
+      console.error('Unable to refresh user accounts from database:', error);
+      if (requestId !== accountsRefreshRequestRef.current) return;
+      setAccountsError('Unable to load accounts.');
+    } finally {
+      if (requestId === accountsRefreshRequestRef.current) {
+        setAccountsLoading(false);
+      }
+    }
+  }, [currentUser?.role]);
+
   const refreshAllData = async () => {
     setLandingConfig(storageService.getLandingConfig());
 
@@ -196,16 +255,7 @@ export default function App() {
       setBarangays([]);
     }
 
-    if (currentUser?.role === 'super_admin' || currentUser?.role === 'admin') {
-      try {
-        setAccounts(await accountsApi.getAll());
-      } catch (error) {
-        console.error('Unable to refresh user accounts from database:', error);
-        setAccounts([]);
-      }
-    } else {
-      setAccounts([]);
-    }
+    await refreshAccounts();
 
     try {
       const { records } = await storageService.fetchSwineRecords();
@@ -265,31 +315,53 @@ export default function App() {
     return () => window.removeEventListener('swine_records_updated', handleSwineUpdate);
   }, []);
 
-  // Multi-Device Real-Time Synchronization with Supabase Cloud
   useEffect(() => {
-    // Periodic refresh every 15 seconds when active
-    const syncInterval = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        refreshAllData().catch(() => {});
-      }
-    }, 15000);
+    if (!supabase || !currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'super_admin')) return;
 
-    // Immediate refetch when user switches back to this browser tab or window
-    const handleFocusOrVisible = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        refreshAllData().catch(() => {});
-      }
-    };
+    const usersChannel = supabase.channel('public-users-realtime');
+    usersChannel
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, (payload: any) => {
+        const nextUser = normalizeAccountRecord(payload.new || payload.old);
+        if (!nextUser) return;
 
-    window.addEventListener('focus', handleFocusOrVisible);
-    document.addEventListener('visibilitychange', handleFocusOrVisible);
+        if (payload.eventType === 'INSERT') {
+          setAccounts(current => {
+            const existing = current.findIndex(user => user.id === nextUser.id || (user.authUserId && nextUser.authUserId && user.authUserId === nextUser.authUserId) || (user.username && user.username === nextUser.username));
+            if (existing >= 0) {
+              return current.map(user => user.id === nextUser.id || (user.authUserId && nextUser.authUserId && user.authUserId === nextUser.authUserId) ? { ...user, ...nextUser } : user);
+            }
+            return [nextUser, ...current];
+          });
+          return;
+        }
+
+        if (payload.eventType === 'UPDATE') {
+          setAccounts(current => current.map(user => {
+            if (user.id === nextUser.id || (user.authUserId && nextUser.authUserId && user.authUserId === nextUser.authUserId)) {
+              return { ...user, ...nextUser };
+            }
+            return user;
+          }));
+          return;
+        }
+
+        if (payload.eventType === 'DELETE') {
+          const deletedUser = normalizeAccountRecord(payload.old);
+          if (!deletedUser) return;
+          setAccounts(current => current.filter(user => {
+            if (user.id === deletedUser.id) return false;
+            if (user.authUserId && deletedUser.authUserId && user.authUserId === deletedUser.authUserId) return false;
+            if (user.username && deletedUser.username && user.username === deletedUser.username) return false;
+            return true;
+          }));
+        }
+      })
+      .subscribe();
 
     return () => {
-      clearInterval(syncInterval);
-      window.removeEventListener('focus', handleFocusOrVisible);
-      document.removeEventListener('visibilitychange', handleFocusOrVisible);
+      supabase.removeChannel(usersChannel);
     };
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     const handleCmsUpdate = (e: Event) => {
@@ -879,7 +951,14 @@ export default function App() {
 
             {activeTab === 'accounts' && (
               (isSuperAdmin || isAdmin) ? (
-                <ManageAccounts users={accounts} barangays={barangays} onRefresh={refreshAllData} currentUser={currentUser} />
+                <ManageAccounts
+                  users={accounts}
+                  barangays={barangays}
+                  onRefresh={refreshAllData}
+                  currentUser={currentUser}
+                  isLoading={accountsLoading}
+                  loadError={accountsError}
+                />
               ) : (
                 <AccessDenied403
                   onBackToDashboard={() => setActiveTab('dashboard')}
