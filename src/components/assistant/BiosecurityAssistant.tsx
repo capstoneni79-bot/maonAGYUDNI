@@ -77,50 +77,84 @@ export const BiosecurityAssistant: React.FC<BiosecurityAssistantProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLElement>(null);
 
-  // Movable / draggable state with sessionStorage persistence
-  const [position, setPosition] = useState<{ x: number; y: number } | null>(() => {
-    try {
-      const saved = sessionStorage.getItem('da_assistant_pos_v1');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (typeof parsed?.x === 'number' && typeof parsed?.y === 'number') {
-          return parsed;
-        }
-      }
-    } catch (e) {}
-    return null;
+  const BUTTON_SIZE = 60;
+  const DEFAULT_LAUNCHER_POSITION = () => ({
+    x: Math.max(16, window.innerWidth - BUTTON_SIZE - 24),
+    y: Math.max(16, window.innerHeight - BUTTON_SIZE - 24),
   });
+
+  const [position, setPosition] = useState<{ x: number; y: number }>(() => DEFAULT_LAUNCHER_POSITION());
 
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef<{ startX: number; startY: number; panelLeft: number; panelTop: number; pointerId: number } | null>(null);
+  const launcherDragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number; hasMoved: boolean } | null>(null);
   const hasMovedRef = useRef(false);
+  const ignoreNextLaunchClickRef = useRef(false);
 
-  // Keep assistant panel clamped within viewport on window resize
+  const clampWithinViewport = (x: number, y: number, width = BUTTON_SIZE, height = BUTTON_SIZE) => {
+    const margin = 12;
+    const maxX = Math.max(margin, window.innerWidth - width - margin);
+    const maxY = Math.max(margin, window.innerHeight - height - margin);
+    return {
+      x: Math.min(Math.max(margin, x), maxX),
+      y: Math.min(Math.max(margin, y), maxY),
+    };
+  };
+
+  // Keep assistant panel and launcher clamped within viewport on resize
   useEffect(() => {
     const handleResize = () => {
       setPosition(prev => {
-        if (!prev) return null;
-        const panel = panelRef.current;
-        const panelWidth = panel?.offsetWidth || 440;
-        const panelHeight = panel?.offsetHeight || (isMinimized ? 60 : 580);
-        const maxX = Math.max(8, window.innerWidth - panelWidth - 8);
-        const maxY = Math.max(8, window.innerHeight - panelHeight - 8);
-        const clampedX = Math.max(8, Math.min(maxX, prev.x));
-        const clampedY = Math.max(8, Math.min(maxY, prev.y));
-        if (clampedX !== prev.x || clampedY !== prev.y) {
-          const next = { x: clampedX, y: clampedY };
-          try {
-            sessionStorage.setItem('da_assistant_pos_v1', JSON.stringify(next));
-          } catch (e) {}
-          return next;
-        }
-        return prev;
+        const clamped = clampWithinViewport(prev.x, prev.y, BUTTON_SIZE, BUTTON_SIZE);
+        return clamped.x !== prev.x || clamped.y !== prev.y ? clamped : prev;
       });
     };
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [isMinimized]);
+  }, []);
+
+  const handleLauncherPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    const pointerStart = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      originX: position.x,
+      originY: position.y,
+      hasMoved: false,
+    };
+    launcherDragRef.current = pointerStart;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
+  };
+
+  const handleLauncherPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!launcherDragRef.current || launcherDragRef.current.pointerId !== e.pointerId) return;
+    const dx = e.clientX - launcherDragRef.current.startX;
+    const dy = e.clientY - launcherDragRef.current.startY;
+    if (Math.abs(dx) + Math.abs(dy) > 8) {
+      launcherDragRef.current.hasMoved = true;
+      const next = clampWithinViewport(launcherDragRef.current.originX + dx, launcherDragRef.current.originY + dy, BUTTON_SIZE, BUTTON_SIZE);
+      setPosition(next);
+    }
+  };
+
+  const handleLauncherPointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const dragState = launcherDragRef.current;
+    if (!dragState || dragState.pointerId !== e.pointerId) return;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
+    const didDrag = dragState.hasMoved;
+    launcherDragRef.current = null;
+    ignoreNextLaunchClickRef.current = didDrag;
+    if (!didDrag) {
+      setIsOpen(true);
+      setIsMinimized(false);
+    }
+  };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
@@ -166,14 +200,10 @@ export const BiosecurityAssistant: React.FC<BiosecurityAssistantProps> = ({
       const rawX = dragStartRef.current.panelLeft + dx;
       const rawY = dragStartRef.current.panelTop + dy;
 
-      const clampedX = Math.max(8, Math.min(viewportWidth - panelWidth - 8, rawX));
-      const clampedY = Math.max(8, Math.min(viewportHeight - panelHeight - 8, rawY));
+      const clampedX = Math.max(12, Math.min(viewportWidth - panelWidth - 12, rawX));
+      const clampedY = Math.max(12, Math.min(viewportHeight - panelHeight - 12, rawY));
 
-      const newPos = { x: Math.round(clampedX), y: Math.round(clampedY) };
-      setPosition(newPos);
-      try {
-        sessionStorage.setItem('da_assistant_pos_v1', JSON.stringify(newPos));
-      } catch (err) {}
+      setPosition({ x: Math.round(clampedX), y: Math.round(clampedY) });
     }
   };
 
@@ -537,54 +567,44 @@ I am connected to your live municipal swine database, GIS coordinates, ASF risk 
           1. FLOATING BOTTOM-RIGHT TRIGGER BUTTON
       ───────────────────────────────────────────────────────────── */}
       {!isOpen && (
-        <div className="fixed bottom-5 right-5 sm:bottom-6 sm:right-6 z-40 animate-in fade-in zoom-in-95 duration-200">
-          <button
-            type="button"
-            onClick={() => {
-              setIsOpen(true);
-              setIsMinimized(false);
-            }}
-            aria-label={
-              isPublicMode
-                ? 'Open DA Hinunangan Public Information Assistant'
-                : isSuperAdmin
-                ? 'Open DA Hinunangan Super Admin Configuration Assistant'
-                : 'Open DA Hinunangan Biosecurity Assistant'
+        <button
+          type="button"
+          onPointerDown={handleLauncherPointerDown}
+          onPointerMove={handleLauncherPointerMove}
+          onPointerUp={handleLauncherPointerUp}
+          onPointerCancel={handleLauncherPointerUp}
+          onClick={() => {
+            if (ignoreNextLaunchClickRef.current) {
+              ignoreNextLaunchClickRef.current = false;
+              return;
             }
-            title={
-              isPublicMode
-                ? 'DA Hinunangan Public Information Assistant'
-                : isSuperAdmin
-                ? 'DA Hinunangan Super Admin Configuration Assistant'
-                : 'DA Hinunangan Biosecurity Assistant'
-            }
-            className="group relative flex items-center gap-2.5 px-4 py-3 rounded-full bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-800 hover:from-emerald-700 hover:to-teal-700 text-white shadow-xl hover:shadow-2xl border-2 border-emerald-500/30 transition transform hover:scale-105 active:scale-95 cursor-pointer focus:outline-hidden focus:ring-4 focus:ring-emerald-500/30"
-          >
-            {/* Animated Beacon Ping */}
-            <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500 border border-white"></span>
-            </span>
+            if (launcherDragRef.current?.hasMoved) return;
+            setIsOpen(true);
+            setIsMinimized(false);
+          }}
+          aria-label="Open Biosecurity Assistant"
+          title="Open Biosecurity Assistant"
+          className="fixed z-40 flex items-center justify-center rounded-full bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-800 shadow-xl hover:shadow-2xl border-2 border-emerald-500/30 transition-transform hover:scale-105 active:scale-95 focus:outline-hidden focus:ring-4 focus:ring-emerald-500/30"
+          style={{
+            width: `${BUTTON_SIZE}px`,
+            height: `${BUTTON_SIZE}px`,
+            left: `${position.x}px`,
+            top: `${position.y}px`,
+            cursor: 'grab',
+            touchAction: 'none',
+          }}
+        >
+          <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500 border border-white"></span>
+          </span>
 
-            <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center p-0.5 shrink-0">
-              <img
-                src={assistantLogo}
-                alt="Assistant Logo"
-                className="w-full h-full object-contain rounded-full"
-              />
-            </div>
-
-            <div className="flex flex-col text-left leading-none">
-              <span className="text-[12px] font-black tracking-tight text-white flex items-center gap-1">
-                <span>{isPublicMode ? 'Public Assistant' : isSuperAdmin ? 'Configuration Assistant' : 'Biosecurity Assistant'}</span>
-                <Sparkles className="w-3 h-3 text-amber-300" />
-              </span>
-              <span className="text-[9.5px] font-medium text-emerald-200/90 mt-0.5">
-                {isPublicMode ? '● Municipal Portal AI' : isSuperAdmin ? '● Master Control AI' : '● Live Registry AI'}
-              </span>
-            </div>
-          </button>
-        </div>
+          <img
+            src={assistantLogo}
+            alt="Biosecurity Assistant logo"
+            className="w-[72%] h-[72%] object-contain rounded-full bg-white/10 p-1 shadow-inner"
+          />
+        </button>
       )}
 
       {/* ─────────────────────────────────────────────────────────────

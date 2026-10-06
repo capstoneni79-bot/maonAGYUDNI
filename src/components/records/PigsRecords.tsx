@@ -3109,7 +3109,16 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
       {/* ===================== TABLE PRINT REPORT MODAL ===================== */}
       {showPrintModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden my-6 border border-stone-200">
+          <div className="relative bg-white w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden my-6 border border-stone-200">
+            <button
+              type="button"
+              onClick={() => setShowPrintModal(false)}
+              aria-label="Close"
+              title="Close"
+              className="absolute right-4 top-4 z-10 inline-flex items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition focus:outline-hidden focus:ring-2 focus:ring-emerald-400/70"
+            >
+              <X className="w-5 h-5" />
+            </button>
             {/* Top Bar */}
             <div className="bg-stone-900 text-white px-6 py-4 flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
@@ -3406,7 +3415,16 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
       {/* ===================== SELECT COLUMNS TO PRINT MODAL ===================== */}
       {showPrintSelectModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="relative bg-white rounded-3xl max-w-2xl w-full shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[90vh]">
+            <button
+              type="button"
+              onClick={() => setShowPrintSelectModal(false)}
+              aria-label="Close"
+              title="Close"
+              className="absolute right-4 top-4 z-10 inline-flex items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition focus:outline-hidden focus:ring-2 focus:ring-emerald-400/70"
+            >
+              <X className="w-5 h-5" />
+            </button>
             <div className="p-5 bg-gradient-to-r from-emerald-900 to-teal-900 text-white flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <Printer className="w-5 h-5 text-emerald-300" />
