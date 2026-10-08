@@ -54,6 +54,7 @@ import {
   computeBarangayGisMetrics,
   generateHeatmapPoints,
   getHeatmapColor,
+  getPopulationClassColor,
   BarangayGisMetrics,
 } from '../../utils/gisCalculations';
 
@@ -782,9 +783,12 @@ export const GoogleGisMap: React.FC<GoogleGisMapProps> = ({
                 );
 
                 const riskLevel = metric?.riskLevel || b.defaultRiskLevel;
-                const strokeColor =
-                  riskLevel === 'red' ? '#dc2626' : riskLevel === 'yellow' ? '#d97706' : '#059669';
-                const fillColor = strokeColor;
+                const populationColor = showHeatmap && heatmapMode === 'swine_density'
+                  ? getPopulationClassColor(metric?.populationClass || 'very_low')
+                  : null;
+                const strokeColor = populationColor ||
+                  (riskLevel === 'red' ? '#dc2626' : riskLevel === 'yellow' ? '#d97706' : '#059669');
+                const fillColor = populationColor || strokeColor;
                 const isHovered = hoveredBarangay === b.name;
                 const isSelected = Boolean(
                   (selectedBarangay && b.name.toLowerCase() === selectedBarangay.toLowerCase()) ||
@@ -812,7 +816,9 @@ export const GoogleGisMap: React.FC<GoogleGisMapProps> = ({
             {/* 2. Heatmap Density Circles (Calculated from Real Swine Records) */}
             {showHeatmap &&
               heatmapData.points.map((pt, idx) => {
-                const color = getHeatmapColor(pt.intensity, heatmapOpacity);
+                const color = heatmapMode === 'swine_density'
+                  ? getPopulationClassColor(pt.populationClass)
+                  : getHeatmapColor(pt.intensity, heatmapOpacity);
                 const radius = Math.max(120, Math.min(650, pt.intensity * 600));
 
                 return (
@@ -1117,14 +1123,29 @@ export const GoogleGisMap: React.FC<GoogleGisMapProps> = ({
 
               {showHeatmap && (
                 <div className="pt-1 border-t border-stone-800">
-                  <span className="text-[10px] text-stone-400 block mb-1 font-semibold">
-                    HEATMAP INTENSITY ({heatmapMode.replace('_', ' ').toUpperCase()}):
-                  </span>
-                  <div className="h-2 w-full rounded bg-gradient-to-r from-emerald-500 via-amber-400 to-red-600" />
-                  <div className="flex justify-between text-[9px] text-stone-400 mt-0.5">
-                    <span>Min: {heatmapData.minVal}</span>
-                    <span>Max: {heatmapData.maxVal}</span>
-                  </div>
+                  {heatmapMode === 'swine_density' ? (
+                    <>
+                      <span className="text-[10px] text-stone-300 block mb-1 font-semibold">REGISTERED SWINE POPULATION</span>
+                      <div className="space-y-1 text-[10px] text-stone-300">
+                        <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-[#dc2626]" />Highly populated</div>
+                        <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-[#eab308]" />Moderately populated</div>
+                        <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-[#8b5cf6]" />Less populated</div>
+                        <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-[#22c55e]" />Very low / no registered swine</div>
+                      </div>
+                      <p className="text-[9px] text-stone-400 mt-1">Colors use registered swine counts and dynamically calculated population bands.</p>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-[10px] text-stone-400 block mb-1 font-semibold">
+                        HEATMAP INTENSITY ({heatmapMode.replace('_', ' ').toUpperCase()}):
+                      </span>
+                      <div className="h-2 w-full rounded bg-gradient-to-r from-emerald-500 via-amber-400 to-red-600" />
+                      <div className="flex justify-between text-[9px] text-stone-400 mt-0.5">
+                        <span>Min: {heatmapData.minVal}</span>
+                        <span>Max: {heatmapData.maxVal}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>

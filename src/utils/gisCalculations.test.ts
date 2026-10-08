@@ -165,7 +165,15 @@ if (ambaconMetric) {
     ambaconMetric.swineWithoutGps > 0,
     `Ambacon has non-GPS swine correctly associated with polygon (${ambaconMetric.swineWithoutGps})`
   );
+  assert(
+    ambaconMetric.populationClass === 'high',
+    'Population category uses registered swine count rather than farmer count'
+  );
 }
+assert(
+  allMetrics.find(metric => metric.barangayName === 'Biasong')?.populationClass === 'very_low',
+  'Barangays with no registered swine use the very-low population class'
+);
 
 // Test 3: Focal Restricted Metrics
 console.log('\n3. Testing Restricted Focal Metrics:');

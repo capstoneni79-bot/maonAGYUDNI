@@ -48,8 +48,10 @@ import {
   ASFZone,
   UserAccount,
   UserRole,
+  FarmerSelection,
 } from '../../types';
 import { storageService } from '../../services/storageService';
+import { mediaApi } from '../../services/api';
 import { ImportSwineModal } from './ImportSwineModal';
 import {
   ActiveFieldItem,
@@ -108,7 +110,7 @@ interface PigsRecordsProps {
   currentRole: UserRole;
   onEditSwine: (swine: SwineRecord) => void;
   onIssueCertificate: (swine: SwineRecord) => void;
-  onAddSwine: () => void;
+  onAddSwine: (farmer?: FarmerSelection) => void;
   onRefresh: () => void;
   onViewOnMap?: (swine: SwineRecord) => void;
   initialViewingRecordId?: string | null;
@@ -162,6 +164,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
 
   // Modals & Selection
   const [viewingRecord, setViewingRecord] = useState<SwineRecord | null>(null);
+  const [expandedFarmerKeys, setExpandedFarmerKeys] = useState<Set<string>>(() => new Set());
   const [deleteConfirmRecord, setDeleteConfirmRecord] = useState<SwineRecord | null>(null);
   const [printSingleRecord, setPrintSingleRecord] = useState<SwineRecord | null>(null);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState<boolean>(false);
@@ -344,19 +347,19 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     }
   };
 
-  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>, position: 'left' | 'right') => {
+  const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, position: 'left' | 'right') => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
+    try {
+      const asset = await mediaApi.uploadFile(file, 'report-logos');
       if (position === 'left') {
-        setReportLeftLogo(dataUrl);
+        setReportLeftLogo(asset.fileUrl);
       } else {
-        setReportRightLogo(dataUrl);
+        setReportRightLogo(asset.fileUrl);
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Unable to upload report logo to Supabase Storage.');
+    }
   };
 
   const toggleColumnVisibility = (fieldId: string) => {
@@ -552,6 +555,32 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     searchScope,
     activeFields,
   ]);
+
+  const farmerGroups = useMemo(() => {
+    const groups = new Map<string, { farmer: FarmerSelection; records: SwineRecord[] }>();
+    filtered.forEach(record => {
+      const key = record.farmerId ||
+        `${record.farmerName.trim().toLowerCase()}|${record.farmerContact.replace(/\D/g, '')}|${record.barangay.trim().toLowerCase()}`;
+      const group = groups.get(key);
+      if (group) {
+        group.records.push(record);
+      } else {
+        groups.set(key, {
+          farmer: {
+            id: record.farmerId,
+            farmerName: record.farmerName,
+            farmerContact: record.farmerContact,
+            farmerAddress: record.farmerAddress,
+            barangay: record.barangay,
+            farmName: record.farmName,
+            rsbsaId: record.rsbsaId,
+          },
+          records: [record],
+        });
+      }
+    });
+    return [...groups.entries()].sort(([, a], [, b]) => a.farmer.farmerName.localeCompare(b.farmer.farmerName));
+  }, [filtered]);
 
   // Sorting
   const sortedRecords = useMemo(() => {
@@ -1194,7 +1223,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
           {/* Register New Swine */}
           {currentRole !== 'agent' && (
             <button
-              onClick={onAddSwine}
+              onClick={() => onAddSwine()}
               className="px-4 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition cursor-pointer"
             >
               <Plus className="w-4 h-4" />
@@ -1725,6 +1754,69 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
         </div>
       )}
 
+      {farmerGroups.length > 0 && (
+        <section className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
+          <div className="px-5 py-3 border-b border-stone-100 flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-stone-900 text-sm">Farmers and their registered swine</h3>
+              <p className="text-[11px] text-stone-500">Expand a farmer to view their swine or register another against the same farmer.</p>
+            </div>
+            <span className="text-[10px] font-bold text-stone-500">{farmerGroups.length} farmers</span>
+          </div>
+          <div className="divide-y divide-stone-100">
+            {farmerGroups.map(([key, group]) => {
+              const expanded = expandedFarmerKeys.has(key);
+              return (
+                <div key={key}>
+                  <div className="px-4 py-3 flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedFarmerKeys(previous => {
+                        const next = new Set(previous);
+                        if (next.has(key)) next.delete(key);
+                        else next.add(key);
+                        return next;
+                      })}
+                      aria-expanded={expanded}
+                      className="flex-1 min-w-[220px] text-left flex items-center gap-2 text-stone-900 hover:text-emerald-800"
+                    >
+                      <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                      <span className="font-semibold">{group.farmer.farmerName}</span>
+                      <span className="text-[10px] text-stone-500">Brgy. {group.farmer.barangay}</span>
+                      <span className="text-[10px] rounded-full bg-stone-100 px-2 py-0.5 text-stone-600">{group.records.length} swine</span>
+                    </button>
+                    {currentRole !== 'agent' && (
+                      <button
+                        type="button"
+                        onClick={() => onAddSwine(group.farmer)}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-bold inline-flex items-center gap-1.5"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Add Swine
+                      </button>
+                    )}
+                  </div>
+                  {expanded && (
+                    <div className="bg-stone-50 px-8 py-2 space-y-1">
+                      {group.records.map(record => (
+                        <button
+                          key={record.id}
+                          type="button"
+                          onClick={() => setViewingRecord(record)}
+                          className="w-full text-left flex items-center justify-between py-1.5 text-xs text-stone-700 hover:text-emerald-800"
+                        >
+                          <span><span className="font-mono font-bold">{record.pigIdTag || record.earTagNo}</span> — {record.breed || record.swineType}</span>
+                          <span className="text-[10px] text-stone-500 capitalize">{record.status}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {/* Primary Swine Records Table */}
       <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
@@ -2042,7 +2134,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                           <div className="pt-2">
                             <button
                               type="button"
-                              onClick={onAddSwine}
+                              onClick={() => onAddSwine()}
                               className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs transition cursor-pointer shadow-sm flex items-center gap-1.5 mx-auto"
                             >
                               <Plus className="w-4 h-4" />

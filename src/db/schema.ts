@@ -16,11 +16,37 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+export const barangays = pgTable('barangays', {
+  id: uuid('id').primaryKey(),
+  code: text('code').notNull(),
+  name: text('name').notNull(),
+});
+
+export const farmers = pgTable('farmers', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  barangayId: uuid('barangay_id').notNull(),
+  firstName: text('first_name').notNull(),
+  middleName: text('middle_name'),
+  lastName: text('last_name').notNull(),
+  suffix: text('suffix'),
+  farmName: text('farm_name'),
+  farmAddress: text('farm_address'),
+  contactNumber: text('contact_number'),
+  email: text('email'),
+  gender: text('gender'),
+  isActive: boolean('is_active').notNull().default(true),
+  isArchived: boolean('is_archived').notNull().default(false),
+  metadata: jsonb('metadata').notNull().default({}),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
 export const swineRecords = pgTable('swine_records', {
   id: uuid('id').primaryKey(),
   computedPigId: text('computed_pig_id').notNull(),
   pigIdTag: text('pig_id_tag'),
   earTagNo: text('ear_tag_no'),
+  farmerId: uuid('farmer_id'),
   farmerName: text('farmer_name').notNull(),
   farmName: text('farm_name'),
   farmerContact: text('farmer_contact'),

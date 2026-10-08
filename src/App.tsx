@@ -11,7 +11,7 @@ import { storageService } from './services/storageService';
 import { accountsApi, authApi, barangaysApi } from './services/api';
 import { landingCmsService } from './services/landingCmsService';
 import { BackgroundPhotoConfig } from './types/landingCms';
-import { Barangay, LandingPageConfig, SwineRecord, UserAccount, UserRole } from './types';
+import { Barangay, FarmerSelection, LandingPageConfig, SwineRecord, UserAccount, UserRole } from './types';
 import { useRoleTheme } from './hooks/useRoleTheme';
 import { supabase } from './lib/supabase';
 
@@ -152,6 +152,7 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalRole, setAuthModalRole] = useState<UserRole>('admin');
   const [editingSwine, setEditingSwine] = useState<SwineRecord | null>(null);
+  const [selectedFarmerForSwine, setSelectedFarmerForSwine] = useState<FarmerSelection | null>(null);
   const [pendingGisCoordinates, setPendingGisCoordinates] = useState<{ latitude: number; longitude: number; barangay?: string } | null>(null);
   const [certificateSwine, setCertificateSwine] = useState<SwineRecord | null>(null);
   const [preselectedTakeoffSwine, setPreselectedTakeoffSwine] = useState<SwineRecord | null>(null);
@@ -346,6 +347,26 @@ export default function App() {
     window.addEventListener('swine_records_updated', handleSwineUpdate);
     return () => window.removeEventListener('swine_records_updated', handleSwineUpdate);
   }, []);
+
+  useEffect(() => {
+    if (!supabase || !currentUser) return;
+    let active = true;
+    const swineChannel = supabase
+      .channel('swine-records-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'swine_records' }, () => {
+        if (active) void refreshAllData();
+      })
+      .subscribe(status => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error(`Unable to subscribe to swine record changes (${status}).`);
+        }
+      });
+
+    return () => {
+      active = false;
+      void supabase.removeChannel(swineChannel);
+    };
+  }, [currentUser?.id]);
 
   const accountsPageOpen = activeTab === 'accounts' && (currentUser?.role === 'admin' || currentUser?.role === 'super_admin');
   useEffect(() => {
@@ -938,15 +959,18 @@ export default function App() {
                 barangays={barangays}
                 currentUser={currentUser}
                 initialData={editingSwine}
+                initialFarmer={selectedFarmerForSwine}
                 initialCoordinates={pendingGisCoordinates}
                 onSuccess={() => {
                   setEditingSwine(null);
+                  setSelectedFarmerForSwine(null);
                   setPendingGisCoordinates(null);
                   refreshAllData();
                   setActiveTab('records');
                 }}
                 onCancel={() => {
                   setEditingSwine(null);
+                  setSelectedFarmerForSwine(null);
                   setPendingGisCoordinates(null);
                   setActiveTab('records');
                 }}
@@ -965,8 +989,9 @@ export default function App() {
                 onIssueCertificate={handleIssueCertificateForSwine}
                 onViewOnMap={handleViewSwineOnMap}
                 initialViewingRecordId={recordsViewingRecordId}
-                onAddSwine={() => {
+                onAddSwine={farmer => {
                   setEditingSwine(null);
+                  setSelectedFarmerForSwine(farmer || null);
                   setActiveTab('add_swine');
                 }}
                 onRefresh={refreshAllData}

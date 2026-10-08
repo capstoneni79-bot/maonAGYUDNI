@@ -2,7 +2,23 @@ import { SwineRecord, Barangay, ASFZone } from '../types';
 import { HINUNANGAN_BARANGAYS, HinunanganBarangayGeo } from '../data/barangays';
 import { HINUNANGAN_BARANGAY_BOUNDARIES } from '../data/hinunanganBoundariesGeoJSON';
 import { scaleSequential } from 'd3-scale';
-import { interpolateRgb, interpolateRgbBasis } from 'd3-interpolate';
+import { interpolateRgbBasis } from 'd3-interpolate';
+
+export type PopulationClass = 'very_low' | 'low' | 'moderate' | 'high';
+
+export const POPULATION_CLASS_COLORS: Record<PopulationClass, string> = {
+  high: '#dc2626',
+  moderate: '#eab308',
+  low: '#8b5cf6',
+  very_low: '#22c55e',
+};
+
+const populationClassIntensity: Record<PopulationClass, number> = {
+  very_low: 0.1,
+  low: 0.4,
+  moderate: 0.7,
+  high: 1,
+};
 
 export type HeatmapMode =
   | 'swine_density'
@@ -18,6 +34,7 @@ export interface HeatmapPoint {
   rawCount: number;
   label: string;
   barangay: string;
+  populationClass: PopulationClass;
 }
 
 export interface BarangayGisMetrics {
@@ -29,6 +46,7 @@ export interface BarangayGisMetrics {
   longitude: number;
   registeredFarmers: number;
   totalSwine: number;
+  populationClass: PopulationClass;
   breedingBoars: number;
   breedingSows: number;
   piglets: number;
@@ -69,7 +87,7 @@ export function computeBarangayGisMetrics(
     ? HINUNANGAN_BARANGAYS.filter(b => b.name.toLowerCase() === authorizedBarangay.toLowerCase())
     : HINUNANGAN_BARANGAYS;
 
-  return targetList.map(geo => {
+  const metrics = targetList.map(geo => {
     const liveBg = barangays.find(b => b.name.toLowerCase() === geo.name.toLowerCase());
     const bgSwine = swineList.filter(
       s => (s.barangay || '').trim().toLowerCase() === geo.name.toLowerCase() && !s.isArchived
@@ -101,6 +119,7 @@ export function computeBarangayGisMetrics(
       longitude: geo.longitude,
       registeredFarmers: farmersSet.size,
       totalSwine: bgSwine.length,
+      populationClass: 'very_low' as PopulationClass,
       breedingBoars: boars,
       breedingSows: sows,
       piglets,
@@ -113,6 +132,40 @@ export function computeBarangayGisMetrics(
       contactNumber: liveBg?.contactNumber || geo.contactNumber,
       swineRecords: bgSwine,
     };
+  });
+
+  const populationGroups = metrics
+    .map(metric => metric.totalSwine)
+    .filter(count => count > 0)
+    .sort((a, b) => a - b);
+  const quantile = (fraction: number): number => {
+    if (populationGroups.length === 0) return 0;
+    const position = (populationGroups.length - 1) * fraction;
+    const lowerIndex = Math.floor(position);
+    const upperIndex = Math.ceil(position);
+    const range = populationGroups[upperIndex] - populationGroups[lowerIndex];
+    return populationGroups[lowerIndex] + range * (position - lowerIndex);
+  };
+  const [lowerThreshold, middleThreshold, upperThreshold] = [0.25, 0.5, 0.75].map(quantile);
+  const distinctPopulations = new Set(populationGroups).size;
+
+  return metrics.map(metric => {
+    if (metric.totalSwine === 0) return metric;
+
+    let populationClass: PopulationClass;
+    if (distinctPopulations === 1) {
+      populationClass = 'moderate';
+    } else if (metric.totalSwine <= lowerThreshold) {
+      populationClass = 'very_low';
+    } else if (metric.totalSwine <= middleThreshold) {
+      populationClass = 'low';
+    } else if (metric.totalSwine <= upperThreshold) {
+      populationClass = 'moderate';
+    } else {
+      populationClass = 'high';
+    }
+
+    return { ...metric, populationClass };
   });
 }
 
@@ -176,7 +229,10 @@ export function generateHeatmapPoints(
         break;
     }
 
-    const intensity = Math.max(0.1, Math.min(1.0, raw / maxVal));
+    const populationClass = m.populationClass;
+    const intensity = mode === 'swine_density'
+      ? populationClassIntensity[populationClass]
+      : Math.max(0.1, Math.min(1.0, raw / maxVal));
 
     // Centroid point representing barangay aggregated density
     points.push({
@@ -186,7 +242,10 @@ export function generateHeatmapPoints(
       rawCount: raw,
       label: `${m.barangayName} (${raw})`,
       barangay: m.barangayName,
+      populationClass,
     });
+
+    if (mode === 'swine_density') return;
 
     // Also include specific swine coordinates if available
     m.swineRecords.forEach(s => {
@@ -204,6 +263,7 @@ export function generateHeatmapPoints(
           rawCount: swineWeight,
           label: `${s.pigIdTag || s.earTagNo} - ${s.farmerName}`,
           barangay: s.barangay,
+          populationClass,
         });
       }
     });
@@ -227,6 +287,11 @@ export function getHeatmapColor(intensity: number, opacity: number = 0.5): strin
   if (rgbColor.startsWith('rgb(')) {
     return rgbColor.replace('rgb(', 'rgba(').replace(')', `, ${opacity})`);
   }
+
   // If hex or rgb, let's parse or return with opacity or fallback
   return rgbColor;
+}
+
+export function getPopulationClassColor(populationClass: PopulationClass): string {
+  return POPULATION_CLASS_COLORS[populationClass];
 }

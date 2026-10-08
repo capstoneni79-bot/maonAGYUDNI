@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { db, pool } from './index.ts';
-import { swineRecords } from './schema.ts';
+import { barangays, farmers, swineRecords } from './schema.ts';
 import { eq, inArray, and, ilike, or, desc, sql } from 'drizzle-orm';
 import { SwineRecord } from '../types.ts';
 
@@ -335,6 +335,7 @@ export function mapDbToSwine(row: any): SwineRecord {
   return {
     ...custom,
     id: String(row.id),
+    farmerId: row.farmerId || row.farmer_id || undefined,
 
     pigIdTag,
 
@@ -555,7 +556,7 @@ export function mapSwineToDb(s: any) {
    * Keep extra application fields inside JSONB.
    */
   const knownSwineKeys = new Set([
-    'id', 'computedPigId', 'computed_pig_id', 'pigIdTag', 'pig_id_tag',
+    'id', 'farmerId', 'farmer_id', 'computedPigId', 'computed_pig_id', 'pigIdTag', 'pig_id_tag',
     'earTagNo', 'ear_tag_no', 'farmerName', 'farmer_name', 'farmName', 'farm_name',
     'farmerContact', 'farmer_contact', 'farmerAddress', 'farmer_address',
     'barangay', 'barangay_id', 'birthDate', 'birth_date', 'dateOfBirth', 'date_of_birth',
@@ -648,6 +649,7 @@ export function mapSwineToDb(s: any) {
 
   return {
     id,
+    farmerId: UUID_REGEX.test(String(record.farmerId || '')) ? String(record.farmerId) : undefined,
 
     computedPigId,
 
@@ -1028,8 +1030,67 @@ export async function upsertSwineRecord(
   record: any
 ): Promise<SwineRecord> {
   try {
-    const dbRecord =
-      mapSwineToDb(record);
+    const dbRecord = mapSwineToDb(record);
+    const saved = await db.transaction(async tx => {
+      const [barangay] = await tx
+        .select({ id: barangays.id })
+        .from(barangays)
+        .where(sql`lower(${barangays.name}) = lower(${dbRecord.barangay})`)
+        .limit(1);
+
+      if (!barangay) {
+        throw new Error(`Cannot save swine record: barangay "${dbRecord.barangay}" is not registered.`);
+      }
+
+      let farmerId: string | undefined;
+      if (UUID_REGEX.test(String(record.farmerId || ''))) {
+        const [existingFarmer] = await tx
+          .select({ id: farmers.id })
+          .from(farmers)
+          .where(and(eq(farmers.id, record.farmerId), eq(farmers.barangayId, barangay.id)))
+          .limit(1);
+        if (!existingFarmer) {
+          throw new Error('The selected farmer does not belong to the swine record barangay.');
+        }
+        farmerId = existingFarmer.id;
+      } else {
+        const name = String(record.farmerName || '').trim().replace(/\s+/g, ' ');
+        if (!name) throw new Error('A registered farmer name is required to save a swine record.');
+        const nameParts = name.split(' ');
+        const farmerIdentity = dbRecord.farmerContact || name.toLowerCase();
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${barangay.id}), hashtext(${farmerIdentity}))`);
+        const fullNameMatch = sql`lower(concat_ws(' ', ${farmers.firstName}, ${farmers.middleName}, ${farmers.lastName})) = lower(${name})`;
+        const identityConditions = [fullNameMatch];
+        if (dbRecord.farmerContact) {
+          identityConditions.unshift(eq(farmers.contactNumber, dbRecord.farmerContact));
+        }
+
+        const [existingFarmer] = await tx
+          .select({ id: farmers.id })
+          .from(farmers)
+          .where(and(eq(farmers.barangayId, barangay.id), or(...identityConditions)))
+          .limit(1);
+
+        farmerId = existingFarmer?.id;
+        if (!farmerId) {
+          const [createdFarmer] = await tx
+            .insert(farmers)
+            .values({
+              barangayId: barangay.id,
+              firstName: nameParts[0],
+              middleName: nameParts.length > 2 ? nameParts.slice(1, -1).join(' ') : null,
+              lastName: nameParts.length > 1 ? nameParts[nameParts.length - 1] : nameParts[0],
+              farmName: String(record.farmName || '').trim() || null,
+              farmAddress: String(record.farmerAddress || '').trim() || null,
+              contactNumber: dbRecord.farmerContact || null,
+              email: String(record.email || record.farmerEmail || '').trim() || null,
+            })
+            .returning({ id: farmers.id });
+          farmerId = createdFarmer?.id;
+        }
+      }
+
+      if (!farmerId) throw new Error('The database did not return the registered farmer ID.');
 
     console.log(
       '[SWINE SAVE] Attempting database save:',
@@ -1048,6 +1109,7 @@ export async function upsertSwineRecord(
 
         farmerName:
           dbRecord.farmerName,
+        farmerId,
 
         farmerContact:
           dbRecord.farmerContact,
@@ -1058,9 +1120,9 @@ export async function upsertSwineRecord(
     );
 
     const result =
-      await db
+      await tx
         .insert(swineRecords)
-        .values(dbRecord)
+        .values({ ...dbRecord, farmerId })
         .onConflictDoUpdate({
           target:
             swineRecords.id,
@@ -1074,6 +1136,8 @@ export async function upsertSwineRecord(
 
             earTagNo:
               dbRecord.earTagNo,
+
+            farmerId,
 
             farmerName:
               dbRecord.farmerName,
@@ -1147,16 +1211,14 @@ export async function upsertSwineRecord(
       );
     }
 
-    const saved =
+      const savedRecord =
       mapDbToSwine(
         result[0]
       );
 
-    console.log(
-      '[SWINE SAVE] Database save successful:',
-      saved.id
-    );
-
+      return savedRecord;
+    });
+    console.log('[SWINE SAVE] Database save successful:', saved.id);
     return saved;
   } catch (error: any) {
     throw createDatabaseError(

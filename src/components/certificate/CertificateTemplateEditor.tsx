@@ -37,7 +37,7 @@ import { HINUNANGAN_BARANGAYS } from '../../data/barangays';
 import { DOCUMENT_TYPE_OPTIONS, INITIAL_CERTIFICATE_TEMPLATES } from '../../data/certificateTemplates';
 import { AVAILABLE_PLACEHOLDERS } from '../../utils/templateReplacer';
 import { DynamicCertificateView } from './DynamicCertificateView';
-import { moduleDataApi } from '../../services/api';
+import { mediaApi, moduleDataApi } from '../../services/api';
 
 interface CertificateTemplateEditorProps {
   initialTemplate?: CertificateTemplate;
@@ -314,20 +314,22 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
     setTemplate(prev => ({ ...prev, logos: list }));
   };
 
-  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>, logoId?: string) => {
+  const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, logoId?: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = reader.result as string;
+    try {
+      const asset = await mediaApi.uploadFile(file, 'certificates/templates/logos');
+      const url = asset.fileUrl;
       if (logoId) {
         handleUpdateLogo(logoId, { type: 'custom', customUrl: url });
       } else {
         setNewLogoCustomUrl(url);
         setNewLogoType('custom');
       }
-    };
-    reader.readAsDataURL(file);
+      setSaveNotice(null);
+    } catch (error) {
+      setSaveNotice(error instanceof Error ? error.message : 'Unable to upload certificate logo.');
+    }
   };
 
   // ==========================================
@@ -382,38 +384,42 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
     setTemplate(prev => ({ ...prev, signatories: list }));
   };
 
-  const handleSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>, sigId: string) => {
+  const handleSignatureUpload = async (e: React.ChangeEvent<HTMLInputElement>, sigId: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
+    try {
+      const asset = await mediaApi.uploadFile(file, 'certificates/templates/signatures');
       handleUpdateSignatory(sigId, {
-        signatureImageUrl: reader.result as string,
+        signatureImageUrl: asset.fileUrl,
         showSignatureImage: true,
       });
-    };
-    reader.readAsDataURL(file);
+      setSaveNotice(null);
+    } catch (error) {
+      setSaveNotice(error instanceof Error ? error.message : 'Unable to upload certificate signature.');
+    }
   };
 
   // ==========================================
   // 3. WATERMARK HANDLER
   // ==========================================
-  const handleWatermarkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleWatermarkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
+    try {
+      const asset = await mediaApi.uploadFile(file, 'certificates/templates/watermarks');
       setTemplate(prev => ({
         ...prev,
         watermark: {
           ...prev.watermark,
           type: 'custom',
-          customUrl: reader.result as string,
+          customUrl: asset.fileUrl,
           enabled: true,
         },
       }));
-    };
-    reader.readAsDataURL(file);
+      setSaveNotice(null);
+    } catch (error) {
+      setSaveNotice(error instanceof Error ? error.message : 'Unable to upload certificate watermark.');
+    }
   };
 
   // Insert placeholder into body textarea

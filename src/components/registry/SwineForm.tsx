@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Upload,
   Camera,
@@ -40,8 +40,16 @@ import {
   RegistryFormSection,
   FarmScale,
   ASFZone,
+  FarmerSelection,
 } from '../../types';
 import { storageService } from '../../services/storageService';
+import {
+  removeSwineDocument,
+  removeSwineImage,
+  uploadSwineDocument,
+  uploadSwineImage,
+  validateImageFile,
+} from '../../services/supabaseStorageService';
 import {
   ContactNumberInput,
   isValidContactNumber,
@@ -83,6 +91,7 @@ interface SwineFormProps {
   barangays: Barangay[];
   currentUser: UserAccount | null;
   initialData?: SwineRecord | null;
+  initialFarmer?: FarmerSelection | null;
   initialCoordinates?: { latitude: number; longitude: number; barangay?: string } | null;
   onSuccess: (record: SwineRecord) => void;
   onCancel?: () => void;
@@ -90,18 +99,11 @@ interface SwineFormProps {
   onViewOrdinance?: () => void;
 }
 
-const SAMPLE_SWINE_PHOTOS = [
-  { label: 'Finisher 1', url: 'https://images.unsplash.com/photo-1516467508483-a7212febe31a?auto=format&fit=crop&w=600&q=80' },
-  { label: 'Finisher 2', url: 'https://images.unsplash.com/photo-1541689592655-f5f52825a3b8?auto=format&fit=crop&w=600&q=80' },
-  { label: 'Breeder Sow', url: 'https://images.unsplash.com/photo-1545468800-856f6620f8b2?auto=format&fit=crop&w=600&q=80' },
-  { label: 'Piglet', url: 'https://images.unsplash.com/photo-1500595046743-cd271d694d30?auto=format&fit=crop&w=600&q=80' },
-  { label: 'Lean Crossbreed', url: 'https://images.unsplash.com/photo-1563281577-a7be47e20db9?auto=format&fit=crop&w=600&q=80' },
-];
-
 export const SwineForm: React.FC<SwineFormProps> = ({
   barangays,
   currentUser,
   initialData,
+  initialFarmer,
   initialCoordinates,
   onSuccess,
   onCancel,
@@ -109,7 +111,7 @@ export const SwineForm: React.FC<SwineFormProps> = ({
   onViewOrdinance,
 }) => {
   // If user is focal person, restrict to their assigned barangay
-  const defaultBarangay = initialCoordinates?.barangay || currentUser?.assignedBarangay || initialData?.barangay || barangays[0]?.name || 'Poblacion';
+  const defaultBarangay = initialFarmer?.barangay || initialCoordinates?.barangay || currentUser?.assignedBarangay || initialData?.barangay || barangays[0]?.name || 'Poblacion';
 
   // Dynamic Form Customization Schema loaded from shared storageService
   const [formSchema, setFormSchema] = useState<RegistryFormSchema>(() =>
@@ -173,20 +175,20 @@ export const SwineForm: React.FC<SwineFormProps> = ({
     }
   }, [initialData, pigIdTag]);
 
-  const [farmerName, setFarmerName] = useState(initialData?.farmerName || '');
+  const [farmerName, setFarmerName] = useState(initialFarmer?.farmerName || initialData?.farmerName || '');
 
-  const cleanInitialContact = getPhilippineLocalContactDigits(initialData?.farmerContact);
+  const cleanInitialContact = getPhilippineLocalContactDigits(initialFarmer?.farmerContact || initialData?.farmerContact);
   const [farmerContact, setFarmerContact] = useState<string>(cleanInitialContact);
   const [contactError, setContactError] = useState<string | null>(null);
   const [contactTouched, setContactTouched] = useState<boolean>(false);
 
-  const [farmerAddress, setFarmerAddress] = useState(initialData?.farmerAddress || '');
+  const [farmerAddress, setFarmerAddress] = useState(initialFarmer?.farmerAddress || initialData?.farmerAddress || '');
   const [barangay, setBarangay] = useState(defaultBarangay);
-  const [rsbsaId, setRsbsaId] = useState(initialData?.rsbsaId || '');
+  const [rsbsaId, setRsbsaId] = useState(initialFarmer?.rsbsaId || initialData?.rsbsaId || '');
   const [farmType, setFarmType] = useState<'backyard' | 'commercial'>(initialData?.farmType || 'backyard');
 
   // Schema-driven farm and farmer state
-  const [farmName, setFarmName] = useState<string>((initialData as any)?.farmName || '');
+  const [farmName, setFarmName] = useState<string>(initialFarmer?.farmName || (initialData as any)?.farmName || '');
   const [farmClassification, setFarmClassification] = useState<string>(
     (initialData as any)?.farmClassification ||
       (initialData?.farmType === 'commercial' ? 'Commercial Breeder (50+ heads)' : 'Backyard (1-10 heads)')
@@ -206,6 +208,20 @@ export const SwineForm: React.FC<SwineFormProps> = ({
   const [isOrdinanceExpanded, setIsOrdinanceExpanded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [swineRecordId] = useState(() => initialData?.id || crypto.randomUUID());
+  const saveCompletedRef = useRef(false);
+  const attachmentPathsRef = useRef<Array<{ path: string; documentId?: string }>>([]);
+
+  useEffect(() => () => {
+    if (saveCompletedRef.current) return;
+    attachmentPathsRef.current.forEach(({ path, documentId }) => {
+      const cleanup = documentId
+        ? removeSwineDocument(documentId, path)
+        : removeSwineImage(path);
+      cleanup.catch(error => console.error('Unable to clean up unsaved swine attachment:', error));
+    });
+  }, []);
 
   // Custom field values state for dynamic admin-created fields
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, any>>(() => {
@@ -312,7 +328,14 @@ export const SwineForm: React.FC<SwineFormProps> = ({
     initialData?.estimatedPricePhp || Math.round((initialData?.weightKg || 60) * 180)
   );
   const [notes, setNotes] = useState(initialData?.notes || '');
-  const [photoUrl, setPhotoUrl] = useState(initialData?.photoUrl || SAMPLE_SWINE_PHOTOS[0].url);
+  const [photoUrl, setPhotoUrl] = useState(initialData?.photoUrl || '');
+  const [selectedPhotoFile, setSelectedPhotoFile] = useState<File | null>(null);
+  const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!photoUrl.startsWith('blob:')) return;
+    return () => URL.revokeObjectURL(photoUrl);
+  }, [photoUrl]);
 
   // Matrix calculation states
   const [isMatrixModalOpen, setIsMatrixModalOpen] = useState(false);
@@ -498,14 +521,18 @@ export const SwineForm: React.FC<SwineFormProps> = ({
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    setPhotoUploadError(null);
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        await validateImageFile(file);
+        setSelectedPhotoFile(file);
+        setPhotoUrl(URL.createObjectURL(file));
+      } catch (error) {
+        setPhotoUploadError(error instanceof Error ? error.message : 'The selected image is invalid.');
+        e.target.value = '';
+      }
     }
   };
 
@@ -596,6 +623,7 @@ export const SwineForm: React.FC<SwineFormProps> = ({
             placeholder={field.placeholder || '9171234567'}
             helpText={field.helpText || 'Enter exactly 10 digits after +63.'}
             errorOverride={contactError}
+            disabled={Boolean(initialFarmer)}
           />
         </div>
       );
@@ -625,7 +653,7 @@ export const SwineForm: React.FC<SwineFormProps> = ({
           </div>
           <select
             value={barangay}
-            disabled={currentUser?.role === 'focal'}
+            disabled={currentUser?.role === 'focal' || Boolean(initialFarmer)}
             onChange={e => handleBarangayChange(e.target.value)}
             required={field.required}
             className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-hidden disabled:bg-stone-100 font-bold text-stone-800"
@@ -658,6 +686,7 @@ export const SwineForm: React.FC<SwineFormProps> = ({
           <input
             type="text"
             required={field.required}
+            readOnly={Boolean(initialFarmer)}
             value={farmerName}
             onChange={e => setFarmerName(e.target.value)}
             placeholder={field.placeholder || 'e.g. Juan D. Dela Cruz'}
@@ -1073,28 +1102,11 @@ export const SwineForm: React.FC<SwineFormProps> = ({
                 <label className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold px-4 py-2.5 rounded-xl border border-emerald-300 cursor-pointer flex items-center gap-2 transition">
                   <Upload className="w-4 h-4" />
                   <span>Upload / Snap Photo</span>
-                  <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+                  <input type="file" accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif" onChange={handleFileUpload} className="hidden" />
                 </label>
               </div>
-              <div className="space-y-1">
-                <span className="text-[11px] text-stone-500 font-medium">Quick sample catalog photo:</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {SAMPLE_SWINE_PHOTOS.map((item, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setPhotoUrl(item.url)}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border cursor-pointer transition ${
-                        photoUrl === item.url
-                          ? 'bg-emerald-700 text-white border-emerald-700'
-                          : 'bg-stone-50 hover:bg-stone-100 text-stone-700 border-stone-300'
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <p className="text-[11px] text-stone-500">JPEG, PNG, WebP, or GIF; maximum 8 MB. The image is uploaded to Supabase Storage.</p>
+              {photoUploadError && <p className="text-[11px] text-red-700 mt-1">{photoUploadError}</p>}
             </div>
             <div>
               <div className="w-full h-36 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 flex items-center justify-center overflow-hidden relative shadow-inner">
@@ -1821,7 +1833,8 @@ export const SwineForm: React.FC<SwineFormProps> = ({
 
     // 24. File upload fields (e.g. fld_brgy_clearance_file, fld_vet_cert_file, or type === 'file')
     if (field.type === 'file') {
-      const fileName = customFieldValues[field.id];
+      const document = customFieldValues[field.id];
+      const fileName = typeof document === 'string' ? document : document?.originalFilename;
       return (
         <div key={field.id} className="sm:col-span-2">
           <label className="block font-bold text-stone-700 mb-1">
@@ -1833,11 +1846,19 @@ export const SwineForm: React.FC<SwineFormProps> = ({
               <span>Upload Document</span>
               <input
                 type="file"
-                accept=".pdf,.doc,.docx,.jpg,.png"
-                onChange={e => {
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                onChange={async e => {
                   const file = e.target.files?.[0];
                   if (file) {
-                    handleCustomFieldChange(field.id, file.name);
+                    setAttachmentError(null);
+                    try {
+                      const uploaded = await uploadSwineDocument(file, barangay, swineRecordId);
+                      attachmentPathsRef.current.push({ path: uploaded.storagePath, documentId: uploaded.id });
+                      handleCustomFieldChange(field.id, uploaded);
+                    } catch (error) {
+                      setAttachmentError(error instanceof Error ? error.message : 'Unable to upload document.');
+                      e.target.value = '';
+                    }
                   }
                 }}
                 className="hidden"
@@ -1850,7 +1871,18 @@ export const SwineForm: React.FC<SwineFormProps> = ({
                 </span>
                 <button
                   type="button"
-                  onClick={() => handleCustomFieldChange(field.id, '')}
+                  onClick={async () => {
+                    if (document && typeof document === 'object' && document.id && document.storagePath) {
+                      try {
+                        await removeSwineDocument(document.id, document.storagePath);
+                        attachmentPathsRef.current = attachmentPathsRef.current.filter(item => item.path !== document.storagePath);
+                      } catch (error) {
+                        setAttachmentError(error instanceof Error ? error.message : 'Unable to remove document.');
+                        return;
+                      }
+                    }
+                    handleCustomFieldChange(field.id, '');
+                  }}
                   className="text-red-500 text-[11px] hover:underline"
                 >
                   Remove
@@ -1860,6 +1892,7 @@ export const SwineForm: React.FC<SwineFormProps> = ({
               <span className="text-[11px] text-stone-400">No document attached</span>
             )}
           </div>
+          {attachmentError && <p className="text-[10px] text-red-700 mt-1">{attachmentError}</p>}
           {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
         </div>
       );
@@ -1868,6 +1901,7 @@ export const SwineForm: React.FC<SwineFormProps> = ({
     // 24. Image upload fields (not fld_swine_photo)
     if (field.type === 'image') {
       const imgData = customFieldValues[field.id];
+      const imageUrl = typeof imgData === 'string' ? imgData : imgData?.url;
       return (
         <div key={field.id} className="sm:col-span-2">
           <label className="block font-bold text-stone-700 mb-1">
@@ -1879,30 +1913,45 @@ export const SwineForm: React.FC<SwineFormProps> = ({
               <span>Choose Photo</span>
               <input
                 type="file"
-                accept="image/*"
-                onChange={e => {
+                accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif"
+                onChange={async e => {
                   const file = e.target.files?.[0];
                   if (file) {
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                      handleCustomFieldChange(field.id, reader.result as string);
-                    };
-                    reader.readAsDataURL(file);
+                    setAttachmentError(null);
+                    try {
+                      const uploaded = await uploadSwineImage(file, barangay, swineRecordId, field.id);
+                      attachmentPathsRef.current.push({ path: uploaded.path });
+                      handleCustomFieldChange(field.id, uploaded);
+                    } catch (error) {
+                      setAttachmentError(error instanceof Error ? error.message : 'Unable to upload image.');
+                      e.target.value = '';
+                    }
                   }
                 }}
                 className="hidden"
               />
             </label>
-            {imgData ? (
+            {imageUrl ? (
               <div className="flex items-center gap-2">
                 <img
-                  src={imgData}
+                  src={imageUrl}
                   alt={field.label}
                   className="w-10 h-10 rounded-xl object-cover border border-emerald-500 shadow-2xs"
                 />
                 <button
                   type="button"
-                  onClick={() => handleCustomFieldChange(field.id, '')}
+                  onClick={async () => {
+                    if (imgData && typeof imgData === 'object' && imgData.path) {
+                      try {
+                        await removeSwineImage(imgData.path);
+                        attachmentPathsRef.current = attachmentPathsRef.current.filter(item => item.path !== imgData.path);
+                      } catch (error) {
+                        setAttachmentError(error instanceof Error ? error.message : 'Unable to remove image.');
+                        return;
+                      }
+                    }
+                    handleCustomFieldChange(field.id, '');
+                  }}
                   className="text-red-500 text-[11px] hover:underline"
                 >
                   Remove
@@ -1912,6 +1961,7 @@ export const SwineForm: React.FC<SwineFormProps> = ({
               <span className="text-[11px] text-stone-400">No image attached</span>
             )}
           </div>
+          {attachmentError && <p className="text-[10px] text-red-700 mt-1">{attachmentError}</p>}
           {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
         </div>
       );
@@ -2299,7 +2349,8 @@ export const SwineForm: React.FC<SwineFormProps> = ({
   normalizedContactInput.trim();
 
     const newRecord: SwineRecord = {
-      id: initialData?.id || 'swine-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+      id: swineRecordId,
+      farmerId: initialFarmer?.id || initialData?.farmerId,
       pigIdTag,
       earTagNo: pigIdTag,
       registry_id: pigIdTag,
@@ -2392,10 +2443,24 @@ export const SwineForm: React.FC<SwineFormProps> = ({
     };
 
     setIsSubmitting(true);
+    let uploadedPhotoPath: string | null = null;
     try {
+      if (selectedPhotoFile) {
+        const uploadedPhoto = await uploadSwineImage(selectedPhotoFile, barangay, newRecord.id);
+        uploadedPhotoPath = uploadedPhoto.path;
+        newRecord.photoUrl = uploadedPhoto.url;
+      }
       const saved = await storageService.saveSwineRecordCloud(newRecord, Boolean(initialData));
+      saveCompletedRef.current = true;
       onSuccess(saved);
     } catch (err: any) {
+      if (uploadedPhotoPath) {
+        try {
+          await removeSwineImage(uploadedPhotoPath);
+        } catch (cleanupError) {
+          console.error('Uploaded swine image could not be cleaned up after the database save failed:', cleanupError);
+        }
+      }
       console.error('Error saving swine record to Supabase cloud:', err);
       const msg = err?.message || 'Failed to save swine record to Supabase cloud database. Please verify your connection and try again.';
       setSubmitError(msg);
@@ -2501,6 +2566,13 @@ export const SwineForm: React.FC<SwineFormProps> = ({
               </label>
             </div>
           </div>
+        </div>
+      )}
+
+      {initialFarmer && (
+        <div className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-950">
+          <strong>Adding swine for registered farmer:</strong> {initialFarmer.farmerName} · Brgy. {initialFarmer.barangay}.
+          Farmer information is preselected; this registration will link the new swine to the existing farmer.
         </div>
       )}
 

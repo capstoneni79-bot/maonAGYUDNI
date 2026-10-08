@@ -83,6 +83,53 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+async function replaceInlineImageDataUrls(value: unknown, memo = new Map<string, string>()): Promise<unknown> {
+  if (typeof value === 'string') {
+    const match = value.match(/^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/=\r\n]+)$/s);
+    if (!match) return value;
+    const [, mimeType, payload] = match;
+    const existingUrl = memo.get(value);
+    if (existingUrl) return existingUrl;
+    if (Math.ceil(payload.length * 0.75) > 15 * 1024 * 1024) {
+      throw new Error('A saved landing-page image exceeds the 15 MB Storage upload limit.');
+    }
+    const extensionByMime: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'image/gif': 'gif',
+    };
+    const response = await fetch('/api/media/upload', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        fileName: `landing-image.${extensionByMime[mimeType]}`,
+        mimeType,
+        base64: value,
+        category: 'landing-cms',
+      }),
+      cache: 'no-store',
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || data?.success !== true || typeof data.fileUrl !== 'string' || !data.filePath) {
+      throw new Error(data?.error || `Unable to move landing-page image into Supabase Storage (HTTP ${response.status}).`);
+    }
+    memo.set(value, data.fileUrl);
+    return data.fileUrl;
+  }
+  if (Array.isArray(value)) {
+    return Promise.all(value.map(item => replaceInlineImageDataUrls(item, memo)));
+  }
+  if (value && typeof value === 'object') {
+    const entries = await Promise.all(Object.entries(value).map(async ([key, item]) => [
+      key,
+      await replaceInlineImageDataUrls(item, memo),
+    ] as const));
+    return Object.fromEntries(entries);
+  }
+  return value;
+}
+
 export const landingCmsService = {
   // These synchronous getters are in-memory snapshots only; callers should load from the API on mount.
   getPublishedConfig(): LandingCmsConfig {
@@ -108,8 +155,9 @@ export const landingCmsService = {
   },
 
   async saveDraft(config: LandingCmsConfig): Promise<LandingCmsConfig> {
+    const storageBackedConfig = await replaceInlineImageDataUrls(config) as LandingCmsConfig;
     const draft = await writeConfig('/api/admin/landing-cms/draft', 'PUT', {
-      ...config,
+      ...storageBackedConfig,
       status: 'draft',
     });
     draftSnapshot = draft;
@@ -118,8 +166,9 @@ export const landingCmsService = {
   },
 
   async publish(config: LandingCmsConfig): Promise<LandingCmsConfig> {
+    const storageBackedConfig = await replaceInlineImageDataUrls(config) as LandingCmsConfig;
     const published = await writeConfig('/api/admin/landing-cms/publish', 'POST', {
-      ...config,
+      ...storageBackedConfig,
       status: 'published',
     });
     publishedSnapshot = published;

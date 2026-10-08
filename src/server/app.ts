@@ -31,7 +31,7 @@ import { INITIAL_LANDING_CONFIG } from '../data/initialData.ts';
 import { INITIAL_CERTIFICATE_TEMPLATES } from '../data/certificateTemplates.ts';
 import { DEFAULT_MASTER_CONFIG } from '../data/defaultMasterConfig.ts';
 import { INITIAL_LANDING_CMS_CONFIG } from '../data/initialLandingCmsData.ts';
-import { uploadLandingCmsAsset } from './supabaseStorage.ts';
+import { deleteLandingCmsAsset, uploadLandingCmsAsset } from './supabaseStorage.ts';
 import { interpretSuperAdminConfigCommand } from '../utils/configCommandInterpreter.ts';
 import { isValidPhilippinePhoneNumber, normalizePhilippinePhoneNumber, toFieldKey } from '../utils/registryFieldUtils.ts';
 import { getSupabaseAdminConfigError, getSupabaseAuthConfigStatus, supabaseAdminClient, supabaseAuthClient, supabaseAuthProjectRef } from '../lib/supabaseServer.ts';
@@ -1569,10 +1569,12 @@ export function createApp() {
       const farmerMap: Record<string, any> = {};
 
       records.forEach(r => {
-        const key = `${(r.farmerName || '').trim().toLowerCase()}_${(r.barangay || '').trim().toLowerCase()}`;
+        const key = r.farmerId ||
+          `${(r.farmerName || '').trim().toLowerCase()}_${(r.farmerContact || '').replace(/\D/g, '')}_${(r.barangay || '').trim().toLowerCase()}`;
         if (!farmerMap[key]) {
           farmerMap[key] = {
-            id: `frm-${r.id}`,
+            id: r.farmerId || key,
+            farmerId: r.farmerId,
             farmerName: r.farmerName,
             contactNumber: r.farmerContact || 'Not provided',
             address: r.farmerAddress || r.farmName || r.barangay,
@@ -2232,93 +2234,59 @@ export function createApp() {
     }
   });
 
-  const ALLOWED_MEDIA_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml']);
-  const MAX_MEDIA_BYTES = 10 * 1024 * 1024; // 10MB limit
-
-  app.post('/api/media/upload', async (req, res) => {
+  const handleMediaUpload = async (req: express.Request, res: express.Response) => {
     const user = getUserSecurityContext(req);
     if (!user.isAuthenticated) {
       return res.status(401).json({ success: false, error: 'Authentication required to upload media.' });
     }
-
-    const { fileName, fileUrl, base64, mimeType, fileSize, category, altText } = req.body || {};
-
-    const resolvedUrl = fileUrl || base64;
-    if (!resolvedUrl || typeof resolvedUrl !== 'string') {
-      return res.status(400).json({ success: false, error: 'Image fileUrl or base64 payload is required.' });
+    if (!user.isAdmin && user.role !== 'super_admin') {
+      return res.status(403).json({ success: false, error: 'Only administrators can upload shared media assets.' });
     }
 
-    // Validate MIME type
-    const safeMime = (mimeType || 'image/jpeg').toLowerCase();
-    if (!ALLOWED_MEDIA_MIMES.has(safeMime)) {
-      return res.status(400).json({ success: false, error: 'Unsupported file type. Only JPEG, PNG, WebP, GIF, and SVG images are permitted.' });
+    const { fileName, base64, mimeType, category, altText } = req.body || {};
+    if (typeof base64 !== 'string' || typeof fileName !== 'string' || typeof mimeType !== 'string') {
+      return res.status(400).json({ success: false, error: 'An image file, original filename, and MIME type are required.' });
     }
 
-    // Validate size (max 10MB)
-    const approximateBytes = Math.ceil((resolvedUrl.length * 3) / 4);
-    if (approximateBytes > MAX_MEDIA_BYTES || (typeof fileSize === 'number' && fileSize > MAX_MEDIA_BYTES)) {
-      return res.status(400).json({ success: false, error: 'File size exceeds maximum permitted limit (10MB).' });
-    }
-
-    const sanitizedFileName = (fileName || `media-${Date.now()}`).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-120) || 'media-image';
+    let uploadedPath: string | null = null;
 
     try {
+      const uploaded = await uploadLandingCmsAsset(
+        sanitizedFileName,
+        mimeType,
+        base64,
+        typeof category === 'string' ? category : 'other'
+      );
+      uploadedPath = uploaded.filePath;
       const item = await insertMedia({
         fileName: sanitizedFileName,
-        fileUrl: resolvedUrl,
-        mimeType: safeMime,
-        fileSize: fileSize || approximateBytes,
+        filePath: uploaded.filePath,
+        fileUrl: uploaded.fileUrl,
+        mimeType,
+        fileSize: uploaded.fileSize,
         category: category || 'OTHER',
         altText: altText || sanitizedFileName || 'Uploaded media asset',
         uploadedBy: user.username,
       });
 
-      return res.status(201).json({ success: true, data: item, fileUrl: item.fileUrl });
+      return res.status(201).json({ success: true, data: item, fileUrl: item.fileUrl, filePath: item.filePath });
     } catch (err: any) {
+      if (uploadedPath) {
+        try {
+          await deleteLandingCmsAsset(uploadedPath);
+        } catch (cleanupError) {
+          console.error('Unable to clean up uploaded media after metadata save failure:', cleanupError);
+        }
+      }
       console.error('Error uploading media:', err);
-      return res.status(500).json({ success: false, error: 'Failed to save media record to database.' });
+      const status = err instanceof Error && /image|mime|payload|15 MB/i.test(err.message) ? 400 : 500;
+      return res.status(status).json({ success: false, error: err instanceof Error ? err.message : 'Failed to upload media to Supabase Storage.' });
     }
-  });
+  };
 
-  app.post('/api/media', async (req, res) => {
-    const user = getUserSecurityContext(req);
-    if (!user.isAuthenticated) {
-      return res.status(401).json({ success: false, error: 'Authentication required to upload media.' });
-    }
-
-    const { fileName, fileUrl, base64, mimeType, fileSize, category, altText } = req.body || {};
-    const resolvedUrl = fileUrl || base64;
-    if (!resolvedUrl || typeof resolvedUrl !== 'string') {
-      return res.status(400).json({ success: false, error: 'fileUrl or base64 is required.' });
-    }
-
-    const safeMime = (mimeType || 'image/jpeg').toLowerCase();
-    if (!ALLOWED_MEDIA_MIMES.has(safeMime)) {
-      return res.status(400).json({ success: false, error: 'Unsupported file type. Only JPEG, PNG, WebP, GIF, and SVG images are permitted.' });
-    }
-
-    const approximateBytes = Math.ceil((resolvedUrl.length * 3) / 4);
-    if (approximateBytes > MAX_MEDIA_BYTES || (typeof fileSize === 'number' && fileSize > MAX_MEDIA_BYTES)) {
-      return res.status(400).json({ success: false, error: 'File size exceeds maximum permitted limit (10MB).' });
-    }
-
-    const sanitizedFileName = (fileName || `media-${Date.now()}`).replace(/[^a-zA-Z0-9._-]/g, '_');
-
-    try {
-      const item = await insertMedia({
-        fileName: sanitizedFileName,
-        fileUrl: resolvedUrl,
-        mimeType: safeMime,
-        fileSize: fileSize || approximateBytes,
-        category: category || 'OTHER',
-        altText: altText || sanitizedFileName,
-        uploadedBy: user.username,
-      });
-      return res.status(201).json({ success: true, data: item });
-    } catch (err: any) {
-      return res.status(500).json({ success: false, error: 'Failed to save media.' });
-    }
-  });
+  app.post('/api/media/upload', handleMediaUpload);
+  app.post('/api/media', handleMediaUpload);
 
   app.delete('/api/media/:id', async (req, res) => {
     const admin = getUserSecurityContext(req);
@@ -2327,9 +2295,14 @@ export function createApp() {
     }
     const { id } = req.params;
     try {
-      await deleteMediaById(id);
+      const media = (await getAllMedia()).find(item => item.id === id);
+      if (!media) return res.status(404).json({ success: false, error: 'Media record not found.' });
+      if (media.filePath) await deleteLandingCmsAsset(media.filePath);
+      const removed = await deleteMediaById(id);
+      if (!removed) throw new Error('Media metadata could not be removed from the database.');
       return res.json({ success: true, message: 'Media removed from database.' });
     } catch (err: any) {
+      console.error('Failed to delete media asset:', err);
       return res.status(500).json({ success: false, error: 'Failed to delete media.' });
     }
   });

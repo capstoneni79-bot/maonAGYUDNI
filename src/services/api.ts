@@ -534,7 +534,7 @@ export const mediaApi = {
     return data.data || [];
   },
 
-  async upload(payload: { fileName: string; fileUrl?: string; base64?: string; category?: string; altText?: string }): Promise<any> {
+  async upload(payload: { fileName: string; fileUrl?: string; base64?: string; mimeType?: string; category?: string; altText?: string }): Promise<any> {
     const res = await fetch('/api/media/upload', {
       method: 'POST',
       headers: getAuthHeaders(),
@@ -545,6 +545,28 @@ export const mediaApi = {
       throw new Error(data?.error || 'Unable to upload media to database.');
     }
     return data.data;
+  },
+
+  async uploadFile(file: File, category: string): Promise<any> {
+    const extensionsByMime: Record<string, string[]> = {
+      'image/jpeg': ['jpg', 'jpeg'],
+      'image/png': ['png'],
+      'image/webp': ['webp'],
+      'image/gif': ['gif'],
+    };
+    const extension = file.name.split('.').pop()?.toLowerCase() || '';
+    if (!extensionsByMime[file.type]?.includes(extension) || file.size === 0 || file.size > 15 * 1024 * 1024) {
+      throw new Error('Choose a JPEG, PNG, WebP, or GIF image no larger than 15 MB.');
+    }
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => typeof reader.result === 'string'
+        ? resolve(reader.result)
+        : reject(new Error('Unable to read the selected image.'));
+      reader.onerror = () => reject(new Error('Unable to read the selected image.'));
+      reader.readAsDataURL(file);
+    });
+    return this.upload({ fileName: file.name, mimeType: file.type, base64, category });
   },
 
   async delete(id: string): Promise<boolean> {

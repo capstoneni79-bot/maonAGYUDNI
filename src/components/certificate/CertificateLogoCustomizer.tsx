@@ -19,6 +19,7 @@ import {
   SealProvince,
 } from '../common/OfficialSeals';
 import { HINUNANGAN_BARANGAYS } from '../../data/barangays';
+import { mediaApi } from '../../services/api';
 
 export interface CertificateLogoSettings {
   leftLogoType: string;
@@ -119,21 +120,20 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
     }
   };
 
-  const handleFileUpload = (
+  const handleFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
     field: 'leftLogoUrl' | 'centerLogoUrl' | 'rightLogoUrl' | 'watermarkUrl'
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const updated = { ...localSettings, [field]: result };
+    try {
+      const asset = await mediaApi.uploadFile(file, 'certificates/logos');
+      const updated = { ...localSettings, [field]: asset.fileUrl };
       setLocalSettings(updated);
       onChange(updated);
-    };
-    reader.readAsDataURL(file);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Unable to upload certificate logo to Supabase Storage.');
+    }
   };
 
   return (

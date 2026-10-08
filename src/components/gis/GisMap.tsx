@@ -43,6 +43,7 @@ import {
   computeBarangayGisMetrics,
   generateHeatmapPoints,
   getHeatmapColor,
+  getPopulationClassColor,
   BarangayGisMetrics,
 } from '../../utils/gisCalculations';
 import { calculateSwineAge, formatDobDisplay } from '../../utils/swineRegistryLogic';
@@ -479,7 +480,10 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
 
       const metric = allBarangayMetrics.find(m => m.barangayName.toLowerCase() === b.name.toLowerCase());
       const riskLevel = metric?.riskLevel || b.defaultRiskLevel;
-      const strokeColor = riskLevel === 'red' ? '#dc2626' : riskLevel === 'yellow' ? '#d97706' : '#059669';
+      const populationColor = showHeatmap && heatmapMode === 'swine_density'
+        ? getPopulationClassColor(metric?.populationClass || 'very_low')
+        : null;
+      const strokeColor = populationColor || (riskLevel === 'red' ? '#dc2626' : riskLevel === 'yellow' ? '#d97706' : '#059669');
 
       const isSelected = Boolean(
         (selectedBarangay && b.name.toLowerCase() === selectedBarangay.toLowerCase()) ||
@@ -511,7 +515,7 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
         labelMarker.addTo(labelsLayerGroupRef.current!);
       }
     });
-  }, [showBoundaries, showLabels, boundaryOpacity, authorizedBarangayName, allBarangayMetrics, handleBarangayClick, selectedBarangay, selectedBarangayFilter]);
+  }, [showBoundaries, showLabels, boundaryOpacity, authorizedBarangayName, allBarangayMetrics, handleBarangayClick, selectedBarangay, selectedBarangayFilter, showHeatmap, heatmapMode]);
 
   // 3. Render Heatmap Layer (Multi-layer soft radial gradient heatmap matching professional style)
   useEffect(() => {
@@ -523,6 +527,18 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
     heatmapData.points.forEach(pt => {
       const radius = Math.max(160, Math.min(750, pt.intensity * 700));
       const intensity = pt.intensity;
+
+      if (heatmapMode === 'swine_density') {
+        L.circle([pt.lat, pt.lng], {
+          radius: Math.max(180, radius),
+          fillColor: getPopulationClassColor(pt.populationClass),
+          fillOpacity: heatmapOpacity,
+          color: '#ffffff',
+          opacity: 0.75,
+          weight: 1,
+        }).addTo(heatmapLayerGroupRef.current!);
+        return;
+      }
 
       // 1. Outer Halo (Teal/Green gradient layer)
       if (intensity >= 0.1) {
@@ -568,7 +584,7 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
         }).addTo(heatmapLayerGroupRef.current!);
       }
     });
-  }, [showHeatmap, heatmapData, heatmapOpacity]);
+  }, [showHeatmap, heatmapData, heatmapOpacity, heatmapMode]);
 
   // Render Dropped Manual Pin Marker
   useEffect(() => {
@@ -1296,11 +1312,23 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
                 <div className="pt-2 border-t border-stone-800 space-y-1.5">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-stone-400 font-semibold uppercase tracking-wider">
-                      HEATMAP DENSITY RANGE ({heatmapMode.replace('_', ' ').toUpperCase()})
+                      {heatmapMode === 'swine_density' ? 'REGISTERED SWINE POPULATION' : `HEATMAP DENSITY RANGE (${heatmapMode.replace('_', ' ').toUpperCase()})`}
                     </span>
                   </div>
-                  <div className="h-2.5 w-full rounded-md bg-gradient-to-r from-[#10b981] via-[#facc15] via-[#fb923c] to-[#dc2626]" />
-                  <div className="space-y-1 text-[10px] text-stone-300 pt-1">
+                  {heatmapMode === 'swine_density' ? (
+                    <>
+                      <div className="space-y-1 text-[10px] text-stone-300">
+                        <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-[#dc2626]" />Highly populated</div>
+                        <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-[#eab308]" />Moderately populated</div>
+                        <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-[#8b5cf6]" />Less populated</div>
+                        <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-[#22c55e]" />Very low / no registered swine</div>
+                      </div>
+                      <p className="text-[9px] text-stone-400">Colors are based on registered swine counts. Population bands are calculated dynamically from the records currently available to your account.</p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="h-2.5 w-full rounded-md bg-gradient-to-r from-[#10b981] via-[#facc15] via-[#fb923c] to-[#dc2626]" />
+                      <div className="space-y-1 text-[10px] text-stone-300 pt-1">
                     <div className="flex items-center justify-between">
                       <span className="flex items-center gap-1.5">
                         <span className="w-2.5 h-2.5 rounded-full bg-[#10b981]" /> Low Density
@@ -1326,6 +1354,8 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
                       </strong>
                     </div>
                   </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>

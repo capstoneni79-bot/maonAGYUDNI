@@ -75,6 +75,7 @@ export interface BiosecurityChecklist {
 
 export interface SwineRecord {
   id: string;
+  farmerId?: string;
   pigIdTag?: string; // Immutable Tag ID format: HIN-YYYY-XXXX
   earTagNo: string;
   farmerName: string;
@@ -152,6 +153,16 @@ export interface SwineRecord {
   registeredAt: string;
   updatedAt: string;
   isSynced?: boolean;
+}
+
+export interface FarmerSelection {
+  id?: string;
+  farmerName: string;
+  farmerContact: string;
+  farmerAddress: string;
+  barangay: string;
+  farmName?: string;
+  rsbsaId?: string;
 }
 
 export type LegalDocumentType =
@@ -885,4 +896,3 @@ export interface AuditLogRecord {
   ipAddress?: string;
   createdAt: string;
 }
-
