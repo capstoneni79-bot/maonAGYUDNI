@@ -189,6 +189,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   // Modals & Selection
   const [viewingRecord, setViewingRecord] = useState<SwineRecord | null>(null);
   const [expandedFarmerKey, setExpandedFarmerKey] = useState<string | null>(null);
+  const [expandedFarmerRowId, setExpandedFarmerRowId] = useState<string | null>(null);
   const [expandedFarmerRecords, setExpandedFarmerRecords] = useState<Record<string, { records: SwineRecord[]; total: number }>>({});
   const [loadingFarmerKey, setLoadingFarmerKey] = useState<string | null>(null);
   const [farmerLoadErrors, setFarmerLoadErrors] = useState<Record<string, string>>({});
@@ -650,6 +651,102 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
       isCurrentRequest = false;
     };
   }, [expandedFarmerKey, farmerGroups, showArchived]);
+
+  const renderExpandedFarmerRow = (farmerKey: string, rowId: string) => {
+    const group = farmerGroups.find(([key]) => key === farmerKey)?.[1];
+    if (!group) return null;
+
+    const databaseResult = expandedFarmerRecords[farmerKey];
+    const farmerRecords = databaseResult?.records || [];
+    const panelId = `farmer-swines-${rowId}`;
+
+    return (
+      <tr key={`${rowId}-farmer-swines`} id={panelId}>
+        <td
+          colSpan={(currentRole === 'admin' ? 16 : 15) + customDynamicColumns.length}
+          className="border-b border-stone-200 bg-stone-50 px-5 py-3"
+        >
+          <div className="space-y-2">
+            <h4 className="text-[10px] font-bold uppercase tracking-wide text-stone-600">
+              Swine registered to {group.farmer.farmerName}
+              {databaseResult && <span className="ml-2 normal-case">({databaseResult.total} swine)</span>}
+            </h4>
+            {loadingFarmerKey === farmerKey ? (
+              <p className="py-2 text-xs text-stone-500">Loading this farmer's swine...</p>
+            ) : farmerLoadErrors[farmerKey] ? (
+              <p role="alert" className="py-2 text-xs text-red-700">{farmerLoadErrors[farmerKey]}</p>
+            ) : !group.farmer.id ? (
+              <p className="py-2 text-xs text-stone-500">This record has no database farmer ID, so related swine cannot be loaded.</p>
+            ) : farmerRecords.length === 0 ? (
+              <p className="py-2 text-xs text-stone-500">No swine records found for this farmer.</p>
+            ) : (
+              farmerRecords.map(record => {
+                const registeredAt = new Date(record.registeredAt);
+                const gender = record.gender || record.sex;
+                const sexLabel = gender === 'male'
+                  ? 'Male (Intact)'
+                  : gender === 'female'
+                    ? 'Female (Gilt/Sow)'
+                    : gender === 'castrated'
+                      ? 'Castrated'
+                      : 'Sex not recorded';
+
+                return (
+                  <article
+                    key={record.id}
+                    className="flex flex-wrap items-center gap-3 rounded-xl border border-stone-200 bg-white p-3 shadow-2xs"
+                  >
+                    <SwinePhoto src={record.photoUrl} className="h-12 w-12 shrink-0" />
+                    <div className="min-w-[180px] flex-1 space-y-0.5">
+                      <p className="font-mono text-xs font-black text-emerald-950">
+                        {record.pigIdTag || record.earTagNo}
+                      </p>
+                      <p className="text-[10px] text-stone-500">
+                        {Number.isNaN(registeredAt.getTime())
+                          ? 'Registration date unavailable'
+                          : `Reg: ${registeredAt.toLocaleDateString()}`}
+                      </p>
+                      <p className="text-xs font-semibold text-stone-800">{record.breed || record.swineType}</p>
+                      <p className="text-[11px] text-stone-600">{sexLabel} · Brgy. {record.barangay}</p>
+                      <p className="text-[10px] text-stone-500">Status: {getStatusLabel(record.status)}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 sm:ml-auto">
+                      <button
+                        type="button"
+                        onClick={() => setViewingRecord(record)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 px-2 py-1.5 text-[10px] font-semibold text-emerald-800 transition hover:bg-emerald-50"
+                        title={t('records_view_details', 'View Full Record Details')}
+                      >
+                        <Eye className="h-3.5 w-3.5" /> View
+                      </button>
+                      {currentRole !== 'agent' && (
+                        <button
+                          type="button"
+                          onClick={() => onEditSwine(record)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-[10px] font-semibold text-stone-700 transition hover:bg-stone-50"
+                          title={t('records_edit_locked', 'Edit Record (Pig ID is locked)')}
+                        >
+                          <Edit className="h-3.5 w-3.5" /> Edit
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setPrintSingleRecord(record)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-[10px] font-semibold text-stone-700 transition hover:bg-stone-50"
+                        title={t('records_print_single', 'Print Swine Record Certificate')}
+                      >
+                        <Printer className="h-3.5 w-3.5" /> Print
+                      </button>
+                    </div>
+                  </article>
+                );
+              })
+            )}
+          </div>
+        </td>
+      </tr>
+    );
+  };
 
   // Sorting
   const sortedRecords = useMemo(() => {
@@ -1823,141 +1920,6 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
         </div>
       )}
 
-      {farmerGroups.length > 0 && (
-        <section className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
-          <div className="px-5 py-3 border-b border-stone-100 flex items-center justify-between">
-            <div>
-              <h3 className="font-bold text-stone-900 text-sm">Farmers and their registered swine</h3>
-              <p className="text-[11px] text-stone-500">Expand a farmer to view their swine or register another against the same farmer.</p>
-            </div>
-            <span className="text-[10px] font-bold text-stone-500">{farmerGroups.length} farmers</span>
-          </div>
-          <div className="divide-y divide-stone-100">
-            {farmerGroups.map(([key, group], index) => {
-              const expanded = expandedFarmerKey === key;
-              const panelId = `farmer-swines-${index}`;
-              const databaseResult = expandedFarmerRecords[key];
-              const farmerRecords = group.farmer.id ? databaseResult?.records || [] : group.records;
-              const sourceCount = group.farmer.id
-                ? enhancedSwineList.filter(record =>
-                    record.farmerId === group.farmer.id &&
-                    Boolean(record.isArchived) === showArchived
-                  ).length
-                : group.records.length;
-              const swineCount = databaseResult?.total ?? sourceCount;
-              return (
-                <div key={key}>
-                  <div className="px-4 py-3 flex flex-wrap items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setExpandedFarmerKey(expanded ? null : key)}
-                      aria-expanded={expanded}
-                      aria-controls={panelId}
-                      className="flex-1 min-w-[220px] text-left flex items-center gap-2 text-stone-900 hover:text-emerald-800"
-                    >
-                      <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? '' : '-rotate-90'}`} />
-                      <span className="font-semibold">{group.farmer.farmerName}</span>
-                      <span className="text-[10px] text-stone-500">Brgy. {group.farmer.barangay}</span>
-                      <span className="text-[10px] rounded-full bg-stone-100 px-2 py-0.5 text-stone-600">{swineCount} swine</span>
-                    </button>
-                    {currentRole !== 'agent' && (
-                      <button
-                        type="button"
-                        onClick={() => onAddSwine(group.farmer)}
-                        disabled={!group.farmer.id}
-                        title={group.farmer.id ? 'Add swine to this registered farmer' : 'Cannot add swine because this farmer has no database ID'}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:bg-stone-300 disabled:cursor-not-allowed text-white text-[11px] font-bold inline-flex items-center gap-1.5"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Add Swine
-                      </button>
-                    )}
-                  </div>
-                  <div
-                    id={panelId}
-                    aria-hidden={!expanded}
-                    className={`grid transition-[grid-template-rows] duration-200 ease-in-out ${expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
-                  >
-                    <div className="min-h-0 overflow-hidden">
-                      <div className="bg-stone-50 px-8 py-2 space-y-2">
-                        {loadingFarmerKey === key ? (
-                          <p className="py-3 text-center text-xs text-stone-500">Loading this farmer's swine...</p>
-                        ) : farmerLoadErrors[key] ? (
-                          <p role="alert" className="py-3 text-center text-xs text-red-700">{farmerLoadErrors[key]}</p>
-                        ) : farmerRecords.length === 0 ? (
-                          <p className="py-3 text-center text-xs text-stone-500">
-                            {group.farmer.id ? 'No swine records found for this farmer.' : 'This farmer has no database ID and cannot be looked up safely.'}
-                          </p>
-                        ) : farmerRecords.map(record => {
-                          const registeredAt = new Date(record.registeredAt);
-                          const gender = record.gender || record.sex;
-                          const sexLabel = gender === 'male'
-                            ? 'Male (Intact)'
-                            : gender === 'female'
-                              ? 'Female (Gilt/Sow)'
-                              : gender === 'castrated'
-                                ? 'Castrated'
-                                : 'Sex not recorded';
-
-                          return (
-                            <article
-                              key={record.id}
-                              className="w-full flex flex-wrap items-center gap-3 rounded-xl border border-stone-200 bg-white p-3 shadow-2xs"
-                            >
-                              <SwinePhoto src={record.photoUrl} className="h-14 w-14 shrink-0" />
-                              <div className="min-w-[180px] flex-1 space-y-0.5">
-                                <p className="font-mono text-xs font-black text-emerald-950">
-                                  {record.pigIdTag || record.earTagNo}
-                                </p>
-                                <p className="text-[10px] text-stone-500">
-                                  {Number.isNaN(registeredAt.getTime())
-                                    ? 'Registration date unavailable'
-                                    : `Reg: ${registeredAt.toLocaleDateString()}`}
-                                </p>
-                                <p className="text-xs font-semibold text-stone-800">{record.breed || record.swineType}</p>
-                                <p className="text-[11px] text-stone-600">{sexLabel} · Brgy. {record.barangay}</p>
-                                <p className="text-[10px] text-stone-500">Status: {getStatusLabel(record.status)}</p>
-                              </div>
-                              <div className="flex items-center gap-1.5 sm:ml-auto">
-                                <button
-                                  type="button"
-                                  onClick={() => setViewingRecord(record)}
-                                  className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 px-2 py-1.5 text-[10px] font-semibold text-emerald-800 transition hover:bg-emerald-50"
-                                  title={t('records_view_details', 'View Full Record Details')}
-                                >
-                                  <Eye className="h-3.5 w-3.5" /> View
-                                </button>
-                                {currentRole !== 'agent' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => onEditSwine(record)}
-                                    className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-[10px] font-semibold text-stone-700 transition hover:bg-stone-50"
-                                    title={t('records_edit_locked', 'Edit Record (Pig ID is locked)')}
-                                  >
-                                    <Edit className="h-3.5 w-3.5" /> Edit
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => setPrintSingleRecord(record)}
-                                  className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-[10px] font-semibold text-stone-700 transition hover:bg-stone-50"
-                                  title={t('records_print_single', 'Print Swine Record Certificate')}
-                                >
-                                  <Printer className="h-3.5 w-3.5" /> Print
-                                </button>
-                              </div>
-                            </article>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
       {/* Primary Swine Records Table */}
       <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
@@ -2342,13 +2304,30 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               ) : (
                 paginatedRecords.map(swine => {
                   const isSelected = selectedRecordIds.has(swine.id);
+                  const farmerKey = swine.farmerId ? `farmer:${swine.farmerId}` : null;
+                  const farmerGroup = farmerKey
+                    ? farmerGroups.find(([key]) => key === farmerKey)?.[1]
+                    : undefined;
+                  const isFarmerExpanded = Boolean(
+                    farmerKey &&
+                    expandedFarmerKey === farmerKey &&
+                    expandedFarmerRowId === swine.id
+                  );
+                  const farmerSwineCount = farmerKey && expandedFarmerRecords[farmerKey]
+                    ? expandedFarmerRecords[farmerKey].total
+                    : swine.farmerId
+                      ? enhancedSwineList.filter(record =>
+                          record.farmerId === swine.farmerId &&
+                          Boolean(record.isArchived) === showArchived
+                        ).length
+                      : 0;
                   return (
-                  <tr
-                    key={swine.id}
-                    className={`transition group ${
-                      isSelected ? 'bg-amber-50/75 hover:bg-amber-100/70' : 'hover:bg-emerald-50/40'
-                    }`}
-                  >
+                  <React.Fragment key={swine.id}>
+                    <tr
+                      className={`transition group ${
+                        isSelected ? 'bg-amber-50/75 hover:bg-amber-100/70' : 'hover:bg-emerald-50/40'
+                      }`}
+                    >
                     {/* Column 0: Checkbox Selector (Admin Only) */}
                     {currentRole === 'admin' && (
                       <td
@@ -2410,9 +2389,49 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
 
                     {/* Column 2: Farmer / Owner */}
                     <td className="py-3 px-4 border-r border-stone-200">
-                      <div className="font-bold text-stone-900">
-                        <HighlightMatch text={swine.farmerName} query={searchTerm} />
-                      </div>
+                      <div className="flex items-start gap-1.5">
+                        {farmerKey ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isFarmerExpanded) {
+                                setExpandedFarmerKey(null);
+                                setExpandedFarmerRowId(null);
+                              } else {
+                                setExpandedFarmerKey(farmerKey);
+                                setExpandedFarmerRowId(swine.id);
+                              }
+                            }}
+                            aria-expanded={isFarmerExpanded}
+                            aria-controls={`farmer-swines-${swine.id}`}
+                            className="mt-0.5 rounded-sm text-stone-500 transition hover:text-emerald-800 focus-visible:outline-2 focus-visible:outline-emerald-700"
+                            title={isFarmerExpanded ? 'Collapse this farmer’s swine' : 'Expand this farmer’s swine'}
+                          >
+                            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isFarmerExpanded ? '' : '-rotate-90'}`} />
+                          </button>
+                        ) : (
+                          <span className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <button
+                            type="button"
+                            disabled={!farmerKey}
+                            onClick={() => {
+                              if (!farmerKey) return;
+                              if (isFarmerExpanded) {
+                                setExpandedFarmerKey(null);
+                                setExpandedFarmerRowId(null);
+                              } else {
+                                setExpandedFarmerKey(farmerKey);
+                                setExpandedFarmerRowId(swine.id);
+                              }
+                            }}
+                            aria-expanded={isFarmerExpanded}
+                            aria-controls={farmerKey ? `farmer-swines-${swine.id}` : undefined}
+                            className="text-left font-bold text-stone-900 disabled:cursor-default"
+                          >
+                            <HighlightMatch text={swine.farmerName} query={searchTerm} />
+                          </button>
                       {swine.farmName && (
                         <div className="text-[10px] text-emerald-800 font-medium truncate max-w-[180px]">
                           Farm: <HighlightMatch text={swine.farmName} query={searchTerm} />
@@ -2423,6 +2442,32 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                           <HighlightMatch text={swine.farmerContact} query={searchTerm} />
                         </div>
                       )}
+                          {farmerKey && (
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              <span className="rounded-full bg-stone-100 px-1.5 py-0.5 text-[9px] font-semibold text-stone-600">
+                                {farmerSwineCount} swine
+                              </span>
+                              {currentRole !== 'agent' && (
+                                <button
+                                  type="button"
+                                  onClick={() => onAddSwine(farmerGroup?.farmer || {
+                                    id: swine.farmerId,
+                                    farmerName: swine.farmerName,
+                                    farmerContact: swine.farmerContact,
+                                    farmerAddress: swine.farmerAddress,
+                                    barangay: swine.barangay,
+                                    farmName: swine.farmName,
+                                    rsbsaId: swine.rsbsaId,
+                                  })}
+                                  className="inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[9px] font-bold text-emerald-800 hover:bg-emerald-50"
+                                >
+                                  <Plus className="h-3 w-3" /> Add Swine
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </td>
 
                     {/* Column 2a: Breed */}
@@ -2661,7 +2706,11 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                         )}
                       </div>
                     </td>
-                  </tr>
+                    </tr>
+                    {isFarmerExpanded && farmerKey
+                      ? renderExpandedFarmerRow(farmerKey, swine.id)
+                      : null}
+                  </React.Fragment>
                   );
                 })
               )}
