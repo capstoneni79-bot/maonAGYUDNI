@@ -354,6 +354,25 @@ export const farmersApi = {
     const data = await res.json();
     return data.data || [];
   },
+
+  async getSwineRecords(
+    farmerId: string,
+    isArchived = false
+  ): Promise<{ records: SwineRecord[]; total: number }> {
+    const params = new URLSearchParams({
+      farmerId,
+      isArchived: String(isArchived),
+    });
+    const res = await fetch(`/api/swine?${params}`, {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.success || !Array.isArray(data.data) || typeof data.total !== 'number') {
+      throw new Error(data?.error || "Unable to load this farmer's swine from the database.");
+    }
+    return { records: data.data as SwineRecord[], total: data.total };
+  },
 };
 
 export const barangaysApi = {

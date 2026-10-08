@@ -51,7 +51,7 @@ import {
   FarmerSelection,
 } from '../../types';
 import { storageService } from '../../services/storageService';
-import { mediaApi } from '../../services/api';
+import { farmersApi, mediaApi } from '../../services/api';
 import { ImportSwineModal } from './ImportSwineModal';
 import {
   ActiveFieldItem,
@@ -189,6 +189,9 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   // Modals & Selection
   const [viewingRecord, setViewingRecord] = useState<SwineRecord | null>(null);
   const [expandedFarmerKey, setExpandedFarmerKey] = useState<string | null>(null);
+  const [expandedFarmerRecords, setExpandedFarmerRecords] = useState<Record<string, { records: SwineRecord[]; total: number }>>({});
+  const [loadingFarmerKey, setLoadingFarmerKey] = useState<string | null>(null);
+  const [farmerLoadErrors, setFarmerLoadErrors] = useState<Record<string, string>>({});
   const [deleteConfirmRecord, setDeleteConfirmRecord] = useState<SwineRecord | null>(null);
   const [printSingleRecord, setPrintSingleRecord] = useState<SwineRecord | null>(null);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState<boolean>(false);
@@ -583,19 +586,9 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   const farmerGroups = useMemo(() => {
     const groups = new Map<string, { farmer: FarmerSelection; records: SwineRecord[] }>();
 
-    const buildFarmerKey = (record: SwineRecord) => {
-      if (record.farmerId) {
-        return `farmer:${record.farmerId}`;
-      }
-
-      const name = (record.farmerName || '').trim().toLowerCase();
-      const contact = (record.farmerContact || '').replace(/\D/g, '');
-      const barangay = (record.barangay || '').trim().toLowerCase();
-      return `legacy:${barangay}|${name}|${contact || 'unknown-contact'}`;
-    };
-
     filtered.forEach(record => {
-      const key = buildFarmerKey(record);
+      if (!record.farmerId) return;
+      const key = `farmer:${record.farmerId}`;
       const group = groups.get(key);
       if (group) {
         group.records.push(record);
@@ -616,6 +609,47 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     });
     return [...groups.entries()].sort(([, a], [, b]) => a.farmer.farmerName.localeCompare(b.farmer.farmerName));
   }, [filtered]);
+
+  useEffect(() => {
+    if (!expandedFarmerKey) return;
+
+    const group = farmerGroups.find(([key]) => key === expandedFarmerKey)?.[1];
+    if (!group?.farmer.id) return;
+
+    let isCurrentRequest = true;
+    setLoadingFarmerKey(expandedFarmerKey);
+    setFarmerLoadErrors(previous => {
+      const next = { ...previous };
+      delete next[expandedFarmerKey];
+      return next;
+    });
+
+    farmersApi.getSwineRecords(group.farmer.id, showArchived)
+      .then(result => {
+        if (!isCurrentRequest) return;
+        setExpandedFarmerRecords(previous => ({
+          ...previous,
+          [expandedFarmerKey]: result,
+        }));
+      })
+      .catch(error => {
+        if (!isCurrentRequest) return;
+        console.error('Unable to load swine for selected farmer:', error);
+        setFarmerLoadErrors(previous => ({
+          ...previous,
+          [expandedFarmerKey]: error instanceof Error
+            ? error.message
+            : "Unable to load this farmer's swine from the database.",
+        }));
+      })
+      .finally(() => {
+        if (isCurrentRequest) setLoadingFarmerKey(null);
+      });
+
+    return () => {
+      isCurrentRequest = false;
+    };
+  }, [expandedFarmerKey, farmerGroups, showArchived]);
 
   // Sorting
   const sortedRecords = useMemo(() => {
@@ -1802,6 +1836,15 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             {farmerGroups.map(([key, group], index) => {
               const expanded = expandedFarmerKey === key;
               const panelId = `farmer-swines-${index}`;
+              const databaseResult = expandedFarmerRecords[key];
+              const farmerRecords = group.farmer.id ? databaseResult?.records || [] : group.records;
+              const sourceCount = group.farmer.id
+                ? enhancedSwineList.filter(record =>
+                    record.farmerId === group.farmer.id &&
+                    Boolean(record.isArchived) === showArchived
+                  ).length
+                : group.records.length;
+              const swineCount = databaseResult?.total ?? sourceCount;
               return (
                 <div key={key}>
                   <div className="px-4 py-3 flex flex-wrap items-center gap-3">
@@ -1815,13 +1858,15 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                       <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? '' : '-rotate-90'}`} />
                       <span className="font-semibold">{group.farmer.farmerName}</span>
                       <span className="text-[10px] text-stone-500">Brgy. {group.farmer.barangay}</span>
-                      <span className="text-[10px] rounded-full bg-stone-100 px-2 py-0.5 text-stone-600">{group.records.length} swine</span>
+                      <span className="text-[10px] rounded-full bg-stone-100 px-2 py-0.5 text-stone-600">{swineCount} swine</span>
                     </button>
                     {currentRole !== 'agent' && (
                       <button
                         type="button"
                         onClick={() => onAddSwine(group.farmer)}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-bold inline-flex items-center gap-1.5"
+                        disabled={!group.farmer.id}
+                        title={group.farmer.id ? 'Add swine to this registered farmer' : 'Cannot add swine because this farmer has no database ID'}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:bg-stone-300 disabled:cursor-not-allowed text-white text-[11px] font-bold inline-flex items-center gap-1.5"
                       >
                         <Plus className="w-3.5 h-3.5" /> Add Swine
                       </button>
@@ -1834,7 +1879,15 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                   >
                     <div className="min-h-0 overflow-hidden">
                       <div className="bg-stone-50 px-8 py-2 space-y-2">
-                        {group.records.map(record => {
+                        {loadingFarmerKey === key ? (
+                          <p className="py-3 text-center text-xs text-stone-500">Loading this farmer's swine...</p>
+                        ) : farmerLoadErrors[key] ? (
+                          <p role="alert" className="py-3 text-center text-xs text-red-700">{farmerLoadErrors[key]}</p>
+                        ) : farmerRecords.length === 0 ? (
+                          <p className="py-3 text-center text-xs text-stone-500">
+                            {group.farmer.id ? 'No swine records found for this farmer.' : 'This farmer has no database ID and cannot be looked up safely.'}
+                          </p>
+                        ) : farmerRecords.map(record => {
                           const registeredAt = new Date(record.registeredAt);
                           const gender = record.gender || record.sex;
                           const sexLabel = gender === 'male'

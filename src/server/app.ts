@@ -1010,6 +1010,7 @@ export function createApp() {
       (req.query.barangayId as string);
     const search = req.query.search as string;
     const status = req.query.status as string;
+    const farmerId = req.query.farmerId as string | undefined;
     const readyToSell = req.query.readyToSell !== undefined ? req.query.readyToSell === 'true' : (user.isAgent ? true : undefined);
     const isArchived = req.query.isArchived !== undefined ? req.query.isArchived === 'true' : false;
     const page = req.query.page ? parseInt(req.query.page as string, 10) : undefined;
@@ -1017,6 +1018,10 @@ export function createApp() {
 
     if (user.isFocal && !user.assignedBarangay) {
       return res.status(403).json({ success: false, error: 'Your account must be assigned to a barangay to view records.' });
+    }
+
+    if (farmerId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(farmerId)) {
+      return res.status(400).json({ success: false, error: 'Invalid farmer ID.' });
     }
 
     // Security check: non-admins cannot query other barangays or 'all'
@@ -1048,6 +1053,7 @@ export function createApp() {
     try {
       const { records, total } = await getAllSwineRecords({
         barangay: effectiveBarangay,
+        farmerId,
         search,
         status,
         readyToSell,

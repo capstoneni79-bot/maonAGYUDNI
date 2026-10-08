@@ -769,6 +769,7 @@ export function mapSwineToDb(s: any) {
 export async function getAllSwineRecords(
   filters?: {
     barangay?: string;
+    farmerId?: string;
     search?: string;
     status?: string;
     readyToSell?: boolean;
@@ -782,6 +783,10 @@ export async function getAllSwineRecords(
 }> {
   try {
     const conditions: any[] = [];
+
+    if (filters?.farmerId) {
+      conditions.push(eq(swineRecords.farmerId, filters.farmerId));
+    }
 
     if (
       filters?.barangay &&
