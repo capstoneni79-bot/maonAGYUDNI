@@ -818,6 +818,10 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     setSelectedRecordIds(new Set(sortedRecords.map(r => r.id)));
   };
 
+  const handleSelectVisiblePage = () => {
+    setSelectedRecordIds(new Set(paginatedRecords.map(record => record.id)));
+  };
+
   const handleClearSelection = () => {
     setSelectedRecordIds(new Set());
   };
@@ -1997,6 +2001,16 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {paginatedRecords.some(record => !selectedRecordIds.has(record.id)) && (
+              <button
+                type="button"
+                onClick={handleSelectVisiblePage}
+                className="px-3 py-1.5 rounded-xl border border-emerald-700 bg-emerald-900 hover:bg-emerald-800 text-emerald-100 text-xs font-semibold transition cursor-pointer"
+                title="Select only swine matching the current filters on this page"
+              >
+                Select visible on this page ({paginatedRecords.length})
+              </button>
+            )}
             {selectedRecordIds.size < totalRecords && (
               <button
                 type="button"
