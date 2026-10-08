@@ -411,10 +411,8 @@ export function validateSwineRecordForSave(
     errors.farmerName = 'Farmer / Raiser Name is required.';
   }
 
-  // 3. Birth Date Validation
-  if (!data.birthDate) {
-    errors.birthDate = 'Birth Date is required.';
-  } else {
+  // 3. Birth Date Validation; requiredness is controlled by the published registry schema.
+  if (data.birthDate) {
     const ageResult = calculateSwineAge(data.birthDate);
     if (!ageResult.isValid) {
       errors.birthDate = ageResult.errorMessage || 'Invalid birth date.';

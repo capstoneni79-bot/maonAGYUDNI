@@ -312,7 +312,7 @@ export const storageService = {
 
   async saveSwineRecordCloud(record: SwineRecord, isEdit: boolean = false): Promise<SwineRecord> {
     const contactDigits = getPhilippineLocalContactDigits(record.farmerContact);
-    if (!record.farmerContact || !isValidPhilippinePhoneNumber(record.farmerContact)) {
+    if (record.farmerContact && !isValidPhilippinePhoneNumber(record.farmerContact)) {
       throw new Error('Contact number must contain exactly 10 digits after +63 and start with 9 (e.g. +63 912 345 6789).');
     }
 
@@ -348,7 +348,7 @@ export const storageService = {
       weightKg: record.weightKg || (record.actualWeightKg ? Number(record.actualWeightKg) : 60),
       farmScale,
       asfZone,
-      farmerContact: normalizePhilippinePhoneNumber(contactDigits),
+      farmerContact: contactDigits ? normalizePhilippinePhoneNumber(contactDigits) : '',
       updatedAt: new Date().toISOString(),
     };
 

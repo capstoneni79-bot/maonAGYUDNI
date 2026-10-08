@@ -160,6 +160,11 @@ const validSwine = {
 };
 const valResult1 = validateSwineRecordForSave(validSwine, []);
 assert(valResult1.isValid, 'Valid swine record passes validation');
+const optionalBirthDateResult = validateSwineRecordForSave(
+  { ...validSwine, birthDate: undefined },
+  []
+);
+assert(optionalBirthDateResult.isValid, 'Optional birth date is accepted when registry schema marks it optional');
 
 // Duplicate Pig ID Tag validation
 const duplicateTagResult = validateSwineRecordForSave(
