@@ -2326,11 +2326,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <img
-                          src={swine.photoUrl || '/icon.svg'}
-                          alt="Swine"
-                          className="w-9 h-9 rounded-lg object-cover border border-stone-200 shadow-2xs shrink-0"
-                        />
+                        <SwinePhoto src={swine.photoUrl} className="h-9 w-9 shrink-0 shadow-2xs" />
                         <div>
                           <span className="font-mono font-black text-emerald-950 block text-xs flex items-center gap-1">
                             <Lock className="w-2.5 h-2.5 text-stone-400" />
