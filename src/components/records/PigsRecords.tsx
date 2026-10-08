@@ -103,6 +103,30 @@ const HighlightMatch: React.FC<{ text: string | null | undefined; query: string 
   );
 };
 
+const SwinePhoto: React.FC<{ src?: string; className: string }> = ({ src, className }) => {
+  const [imageFailed, setImageFailed] = useState(false);
+  const imageSrc = src && !/^data:/i.test(src) ? src : null;
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [src]);
+
+  return (
+    <div className={`${className} relative flex items-center justify-center overflow-hidden rounded-lg border border-stone-200 bg-stone-100 text-stone-400`}>
+      {imageSrc && !imageFailed ? (
+        <img
+          src={imageSrc}
+          alt="Swine"
+          className="h-full w-full object-cover"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        <ImageIcon className="h-5 w-5" aria-label="Swine photo unavailable" />
+      )}
+    </div>
+  );
+};
+
 interface PigsRecordsProps {
   swineList: SwineRecord[];
   barangays: Barangay[];
@@ -1803,20 +1827,76 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                       </button>
                     )}
                   </div>
-                  <div id={panelId} hidden={!expanded} className="bg-stone-50 px-8 py-2 space-y-2">
-                    {group.records.map(record => (
-                      <button
-                        key={record.id}
-                        type="button"
-                        onClick={() => setViewingRecord(record)}
-                        className="w-full text-left flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs text-stone-700 hover:border-emerald-300 hover:text-emerald-800"
-                      >
-                        <span className="font-mono font-bold">{record.pigIdTag || record.earTagNo}</span>
-                        <span className="min-w-[140px] flex-1">{record.breed || record.swineType}</span>
-                        <span className="text-[10px] text-stone-600 capitalize">{record.gender?.replace(/_/g, ' ') || 'Sex not recorded'}</span>
-                        <span className="w-full text-[10px] text-stone-500">Status: {record.status?.replace(/_/g, ' ') || 'Unknown'}</span>
-                      </button>
-                    ))}
+                  <div
+                    id={panelId}
+                    aria-hidden={!expanded}
+                    className={`grid transition-[grid-template-rows] duration-200 ease-in-out ${expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+                  >
+                    <div className="min-h-0 overflow-hidden">
+                      <div className="bg-stone-50 px-8 py-2 space-y-2">
+                        {group.records.map(record => {
+                          const registeredAt = new Date(record.registeredAt);
+                          const gender = record.gender || record.sex;
+                          const sexLabel = gender === 'male'
+                            ? 'Male (Intact)'
+                            : gender === 'female'
+                              ? 'Female (Gilt/Sow)'
+                              : gender === 'castrated'
+                                ? 'Castrated'
+                                : 'Sex not recorded';
+
+                          return (
+                            <article
+                              key={record.id}
+                              className="w-full flex flex-wrap items-center gap-3 rounded-xl border border-stone-200 bg-white p-3 shadow-2xs"
+                            >
+                              <SwinePhoto src={record.photoUrl} className="h-14 w-14 shrink-0" />
+                              <div className="min-w-[180px] flex-1 space-y-0.5">
+                                <p className="font-mono text-xs font-black text-emerald-950">
+                                  {record.pigIdTag || record.earTagNo}
+                                </p>
+                                <p className="text-[10px] text-stone-500">
+                                  {Number.isNaN(registeredAt.getTime())
+                                    ? 'Registration date unavailable'
+                                    : `Reg: ${registeredAt.toLocaleDateString()}`}
+                                </p>
+                                <p className="text-xs font-semibold text-stone-800">{record.breed || record.swineType}</p>
+                                <p className="text-[11px] text-stone-600">{sexLabel} · Brgy. {record.barangay}</p>
+                                <p className="text-[10px] text-stone-500">Status: {getStatusLabel(record.status)}</p>
+                              </div>
+                              <div className="flex items-center gap-1.5 sm:ml-auto">
+                                <button
+                                  type="button"
+                                  onClick={() => setViewingRecord(record)}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 px-2 py-1.5 text-[10px] font-semibold text-emerald-800 transition hover:bg-emerald-50"
+                                  title={t('records_view_details', 'View Full Record Details')}
+                                >
+                                  <Eye className="h-3.5 w-3.5" /> View
+                                </button>
+                                {currentRole !== 'agent' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onEditSwine(record)}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-[10px] font-semibold text-stone-700 transition hover:bg-stone-50"
+                                    title={t('records_edit_locked', 'Edit Record (Pig ID is locked)')}
+                                  >
+                                    <Edit className="h-3.5 w-3.5" /> Edit
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setPrintSingleRecord(record)}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-[10px] font-semibold text-stone-700 transition hover:bg-stone-50"
+                                  title={t('records_print_single', 'Print Swine Record Certificate')}
+                                >
+                                  <Printer className="h-3.5 w-3.5" /> Print
+                                </button>
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </div>
               );
