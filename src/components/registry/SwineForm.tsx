@@ -189,6 +189,27 @@ export const SwineForm: React.FC<SwineFormProps> = ({
 
   // Schema-driven farm and farmer state
   const [farmName, setFarmName] = useState<string>(initialFarmer?.farmName || (initialData as any)?.farmName || '');
+
+  useEffect(() => {
+    if (initialFarmer) {
+      setFarmerName(initialFarmer.farmerName || '');
+      setFarmerContact(getPhilippineLocalContactDigits(initialFarmer.farmerContact || ''));
+      setFarmerAddress(initialFarmer.farmerAddress || '');
+      setBarangay(initialFarmer.barangay || defaultBarangay);
+      setRsbsaId(initialFarmer.rsbsaId || '');
+      setFarmName(initialFarmer.farmName || '');
+      return;
+    }
+
+    if (initialData) {
+      setFarmerName(initialData.farmerName || '');
+      setFarmerContact(getPhilippineLocalContactDigits(initialData.farmerContact || ''));
+      setFarmerAddress(initialData.farmerAddress || '');
+      setBarangay(initialData.barangay || defaultBarangay);
+      setRsbsaId(initialData.rsbsaId || '');
+      setFarmName((initialData as any)?.farmName || '');
+    }
+  }, [initialFarmer, initialData, defaultBarangay]);
   const [farmClassification, setFarmClassification] = useState<string>(
     (initialData as any)?.farmClassification ||
       (initialData?.farmType === 'commercial' ? 'Commercial Breeder (50+ heads)' : 'Backyard (1-10 heads)')
@@ -707,10 +728,11 @@ export const SwineForm: React.FC<SwineFormProps> = ({
           <input
             type="text"
             required={field.required}
+            readOnly={Boolean(initialFarmer)}
             value={farmName}
             onChange={e => setFarmName(e.target.value)}
             placeholder={field.placeholder || 'e.g. San Isidro Heritage Swine Farm'}
-            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden disabled:bg-stone-100"
           />
           {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
         </div>
@@ -774,10 +796,11 @@ export const SwineForm: React.FC<SwineFormProps> = ({
           <input
             type="text"
             required={field.required}
+            readOnly={Boolean(initialFarmer)}
             value={farmerAddress}
             onChange={e => setFarmerAddress(e.target.value)}
             placeholder={field.placeholder || 'e.g. Purok 3, Riverside'}
-            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden disabled:bg-stone-100"
           />
           {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
         </div>

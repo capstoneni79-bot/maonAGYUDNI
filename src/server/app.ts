@@ -1284,6 +1284,7 @@ export function createApp() {
         ...existing,
         ...record,
         id,
+        farmerId: record.farmerId ?? existing.farmerId,
         pigIdTag: preservedPigId || record.pigIdTag,
         earTagNo: preservedPigId || record.earTagNo,
       };

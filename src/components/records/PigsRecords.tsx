@@ -558,9 +558,20 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
 
   const farmerGroups = useMemo(() => {
     const groups = new Map<string, { farmer: FarmerSelection; records: SwineRecord[] }>();
+
+    const buildFarmerKey = (record: SwineRecord) => {
+      if (record.farmerId) {
+        return `farmer:${record.farmerId}`;
+      }
+
+      const name = (record.farmerName || '').trim().toLowerCase();
+      const contact = (record.farmerContact || '').replace(/\D/g, '');
+      const barangay = (record.barangay || '').trim().toLowerCase();
+      return `legacy:${barangay}|${name}|${contact || 'unknown-contact'}`;
+    };
+
     filtered.forEach(record => {
-      const key = record.farmerId ||
-        `${record.farmerName.trim().toLowerCase()}|${record.farmerContact.replace(/\D/g, '')}|${record.barangay.trim().toLowerCase()}`;
+      const key = buildFarmerKey(record);
       const group = groups.get(key);
       if (group) {
         group.records.push(record);
