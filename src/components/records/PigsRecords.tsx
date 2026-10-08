@@ -164,7 +164,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
 
   // Modals & Selection
   const [viewingRecord, setViewingRecord] = useState<SwineRecord | null>(null);
-  const [expandedFarmerKeys, setExpandedFarmerKeys] = useState<Set<string>>(() => new Set());
+  const [expandedFarmerKey, setExpandedFarmerKey] = useState<string | null>(null);
   const [deleteConfirmRecord, setDeleteConfirmRecord] = useState<SwineRecord | null>(null);
   const [printSingleRecord, setPrintSingleRecord] = useState<SwineRecord | null>(null);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState<boolean>(false);
@@ -1775,23 +1775,20 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             <span className="text-[10px] font-bold text-stone-500">{farmerGroups.length} farmers</span>
           </div>
           <div className="divide-y divide-stone-100">
-            {farmerGroups.map(([key, group]) => {
-              const expanded = expandedFarmerKeys.has(key);
+            {farmerGroups.map(([key, group], index) => {
+              const expanded = expandedFarmerKey === key;
+              const panelId = `farmer-swines-${index}`;
               return (
                 <div key={key}>
                   <div className="px-4 py-3 flex flex-wrap items-center gap-3">
                     <button
                       type="button"
-                      onClick={() => setExpandedFarmerKeys(previous => {
-                        const next = new Set(previous);
-                        if (next.has(key)) next.delete(key);
-                        else next.add(key);
-                        return next;
-                      })}
+                      onClick={() => setExpandedFarmerKey(expanded ? null : key)}
                       aria-expanded={expanded}
+                      aria-controls={panelId}
                       className="flex-1 min-w-[220px] text-left flex items-center gap-2 text-stone-900 hover:text-emerald-800"
                     >
-                      <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                      <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? '' : '-rotate-90'}`} />
                       <span className="font-semibold">{group.farmer.farmerName}</span>
                       <span className="text-[10px] text-stone-500">Brgy. {group.farmer.barangay}</span>
                       <span className="text-[10px] rounded-full bg-stone-100 px-2 py-0.5 text-stone-600">{group.records.length} swine</span>
@@ -1806,21 +1803,21 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                       </button>
                     )}
                   </div>
-                  {expanded && (
-                    <div className="bg-stone-50 px-8 py-2 space-y-1">
-                      {group.records.map(record => (
-                        <button
-                          key={record.id}
-                          type="button"
-                          onClick={() => setViewingRecord(record)}
-                          className="w-full text-left flex items-center justify-between py-1.5 text-xs text-stone-700 hover:text-emerald-800"
-                        >
-                          <span><span className="font-mono font-bold">{record.pigIdTag || record.earTagNo}</span> — {record.breed || record.swineType}</span>
-                          <span className="text-[10px] text-stone-500 capitalize">{record.status}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <div id={panelId} hidden={!expanded} className="bg-stone-50 px-8 py-2 space-y-2">
+                    {group.records.map(record => (
+                      <button
+                        key={record.id}
+                        type="button"
+                        onClick={() => setViewingRecord(record)}
+                        className="w-full text-left flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs text-stone-700 hover:border-emerald-300 hover:text-emerald-800"
+                      >
+                        <span className="font-mono font-bold">{record.pigIdTag || record.earTagNo}</span>
+                        <span className="min-w-[140px] flex-1">{record.breed || record.swineType}</span>
+                        <span className="text-[10px] text-stone-600 capitalize">{record.gender?.replace(/_/g, ' ') || 'Sex not recorded'}</span>
+                        <span className="w-full text-[10px] text-stone-500">Status: {record.status?.replace(/_/g, ' ') || 'Unknown'}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               );
             })}
