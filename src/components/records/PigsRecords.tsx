@@ -2192,7 +2192,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 ))}
 
                 {/* Column 13: Sticky Actions */}
-                <th className="py-3.5 px-4 text-right sticky right-0 bg-stone-100/95 z-10 border-l border-stone-200 shadow-2xs">
+                <th className="sticky right-0 z-30 min-w-[320px] border-l border-stone-200 bg-stone-100 px-4 py-3.5 text-right shadow-2xs">
                   {t('records_th_actions', 'Actions')}
                 </th>
               </tr>
@@ -2593,8 +2593,10 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                     })}
 
                     {/* Column 13: Actions */}
-                    <td className="py-3 px-4 text-right sticky right-0 bg-white group-hover:bg-emerald-50/90 z-10 border-l border-stone-200">
-                      <div className="flex items-center justify-end gap-1">
+                    <td className={`sticky right-0 z-20 min-w-[320px] border-l border-stone-200 px-3 py-3 text-right shadow-2xs ${
+                      isSelected ? 'bg-amber-50 group-hover:bg-amber-100' : 'bg-white group-hover:bg-emerald-50'
+                    }`}>
+                      <div className="flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap">
                         {/* View Details */}
                         <button
                           onClick={() => setViewingRecord(swine)}
