@@ -742,6 +742,17 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 );
               })
             )}
+            {currentRole !== 'agent' && group.farmer.id && (
+              <div className="flex justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={() => onAddSwine(group.farmer)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-emerald-800"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Swine
+                </button>
+              </div>
+            )}
           </div>
         </td>
       </tr>
@@ -2305,9 +2316,6 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 paginatedRecords.map(swine => {
                   const isSelected = selectedRecordIds.has(swine.id);
                   const farmerKey = swine.farmerId ? `farmer:${swine.farmerId}` : null;
-                  const farmerGroup = farmerKey
-                    ? farmerGroups.find(([key]) => key === farmerKey)?.[1]
-                    : undefined;
                   const isFarmerExpanded = Boolean(
                     farmerKey &&
                     expandedFarmerKey === farmerKey &&
@@ -2447,23 +2455,6 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                               <span className="rounded-full bg-stone-100 px-1.5 py-0.5 text-[9px] font-semibold text-stone-600">
                                 {farmerSwineCount} swine
                               </span>
-                              {currentRole !== 'agent' && (
-                                <button
-                                  type="button"
-                                  onClick={() => onAddSwine(farmerGroup?.farmer || {
-                                    id: swine.farmerId,
-                                    farmerName: swine.farmerName,
-                                    farmerContact: swine.farmerContact,
-                                    farmerAddress: swine.farmerAddress,
-                                    barangay: swine.barangay,
-                                    farmName: swine.farmName,
-                                    rsbsaId: swine.rsbsaId,
-                                  })}
-                                  className="inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[9px] font-bold text-emerald-800 hover:bg-emerald-50"
-                                >
-                                  <Plus className="h-3 w-3" /> Add Swine
-                                </button>
-                              )}
                             </div>
                           )}
                         </div>
