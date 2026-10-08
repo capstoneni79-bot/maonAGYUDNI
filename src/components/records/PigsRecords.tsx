@@ -51,7 +51,7 @@ import {
   FarmerSelection,
 } from '../../types';
 import { storageService } from '../../services/storageService';
-import { farmersApi, mediaApi } from '../../services/api';
+import { mediaApi } from '../../services/api';
 import { ImportSwineModal } from './ImportSwineModal';
 import {
   ActiveFieldItem,
@@ -140,6 +140,35 @@ interface PigsRecordsProps {
   initialViewingRecordId?: string | null;
 }
 
+type EnhancedSwineRecord = SwineRecord & {
+  computedPigId: string;
+  computedAgeYears: number;
+  computedAgeMonths: number;
+  computedAgeDays: number;
+  computedTotalDays: number;
+  computedTotalMonths: number;
+  computedAgeLabel: string;
+  computedHasDob: boolean;
+  computedDobFormatted: string;
+  computedEstimatedWeight: string;
+  computedActualWeight: number | string | null;
+  computedFarmScale: FarmScale;
+  computedAsfZone: ASFZone;
+  computedHasWarning: boolean;
+  computedIsReady: boolean;
+};
+
+const getFarmerGroupKey = (record: SwineRecord): string => {
+  if (record.farmerId) return `farmer:${record.farmerId}`;
+  const normalize = (value: string | undefined) => (value || '').trim().toLocaleLowerCase().replace(/\s+/g, ' ');
+  const rsbsa = normalize(record.rsbsaId);
+  if (rsbsa) return `rsbsa:${rsbsa}`;
+  const name = normalize(record.farmerName);
+  if (!name) return `record:${record.id}`;
+  const contact = (record.farmerContact || '').replace(/\D/g, '');
+  return `profile:${name}|${normalize(record.farmName)}|${normalize(record.farmerAddress)}|${normalize(record.barangay)}|${contact}`;
+};
+
 export const PigsRecords: React.FC<PigsRecordsProps> = ({
   swineList,
   barangays,
@@ -189,10 +218,6 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   // Modals & Selection
   const [viewingRecord, setViewingRecord] = useState<SwineRecord | null>(null);
   const [expandedFarmerKey, setExpandedFarmerKey] = useState<string | null>(null);
-  const [expandedFarmerRowId, setExpandedFarmerRowId] = useState<string | null>(null);
-  const [expandedFarmerRecords, setExpandedFarmerRecords] = useState<Record<string, { records: SwineRecord[]; total: number }>>({});
-  const [loadingFarmerKey, setLoadingFarmerKey] = useState<string | null>(null);
-  const [farmerLoadErrors, setFarmerLoadErrors] = useState<Record<string, string>>({});
   const [deleteConfirmRecord, setDeleteConfirmRecord] = useState<SwineRecord | null>(null);
   const [printSingleRecord, setPrintSingleRecord] = useState<SwineRecord | null>(null);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState<boolean>(false);
@@ -402,7 +427,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   };
 
   // Pre-calculate derived fields for every swine record to ensure reactive accuracy
-  const enhancedSwineList = useMemo(() => {
+  const enhancedSwineList = useMemo<EnhancedSwineRecord[]>(() => {
     return swineList.map(s => {
       const pigId = s.pigIdTag || s.earTagNo || 'HIN-2026-0000';
       const effectiveDob = s.birthDate || s.dateOfBirth || s.date_of_birth || s.dob;
@@ -439,7 +464,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   }, [swineList, barangays]);
 
   // Filtering
-  const filtered = useMemo(() => {
+  const filtered = useMemo<EnhancedSwineRecord[]>(() => {
     return enhancedSwineList.filter(s => {
       // Role scope filter
       const itemBg = (s.barangay || '').toLowerCase();
@@ -584,181 +609,6 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     activeFields,
   ]);
 
-  const farmerGroups = useMemo(() => {
-    const groups = new Map<string, { farmer: FarmerSelection; records: SwineRecord[] }>();
-
-    filtered.forEach(record => {
-      if (!record.farmerId) return;
-      const key = `farmer:${record.farmerId}`;
-      const group = groups.get(key);
-      if (group) {
-        group.records.push(record);
-      } else {
-        groups.set(key, {
-          farmer: {
-            id: record.farmerId,
-            farmerName: record.farmerName,
-            farmerContact: record.farmerContact,
-            farmerAddress: record.farmerAddress,
-            barangay: record.barangay,
-            farmName: record.farmName,
-            rsbsaId: record.rsbsaId,
-          },
-          records: [record],
-        });
-      }
-    });
-    return [...groups.entries()].sort(([, a], [, b]) => a.farmer.farmerName.localeCompare(b.farmer.farmerName));
-  }, [filtered]);
-
-  useEffect(() => {
-    if (!expandedFarmerKey) return;
-
-    const group = farmerGroups.find(([key]) => key === expandedFarmerKey)?.[1];
-    if (!group?.farmer.id) return;
-
-    let isCurrentRequest = true;
-    setLoadingFarmerKey(expandedFarmerKey);
-    setFarmerLoadErrors(previous => {
-      const next = { ...previous };
-      delete next[expandedFarmerKey];
-      return next;
-    });
-
-    farmersApi.getSwineRecords(group.farmer.id, showArchived)
-      .then(result => {
-        if (!isCurrentRequest) return;
-        setExpandedFarmerRecords(previous => ({
-          ...previous,
-          [expandedFarmerKey]: result,
-        }));
-      })
-      .catch(error => {
-        if (!isCurrentRequest) return;
-        console.error('Unable to load swine for selected farmer:', error);
-        setFarmerLoadErrors(previous => ({
-          ...previous,
-          [expandedFarmerKey]: error instanceof Error
-            ? error.message
-            : "Unable to load this farmer's swine from the database.",
-        }));
-      })
-      .finally(() => {
-        if (isCurrentRequest) setLoadingFarmerKey(null);
-      });
-
-    return () => {
-      isCurrentRequest = false;
-    };
-  }, [expandedFarmerKey, farmerGroups, showArchived]);
-
-  const renderExpandedFarmerRow = (farmerKey: string, rowId: string) => {
-    const group = farmerGroups.find(([key]) => key === farmerKey)?.[1];
-    if (!group) return null;
-
-    const databaseResult = expandedFarmerRecords[farmerKey];
-    const farmerRecords = databaseResult?.records || [];
-    const panelId = `farmer-swines-${rowId}`;
-
-    return (
-      <tr key={`${rowId}-farmer-swines`} id={panelId}>
-        <td
-          colSpan={(currentRole === 'admin' ? 16 : 15) + customDynamicColumns.length}
-          className="border-b border-stone-200 bg-stone-50 px-5 py-3"
-        >
-          <div className="space-y-2">
-            <h4 className="text-[10px] font-bold uppercase tracking-wide text-stone-600">
-              Swine registered to {group.farmer.farmerName}
-              {databaseResult && <span className="ml-2 normal-case">({databaseResult.total} swine)</span>}
-            </h4>
-            {loadingFarmerKey === farmerKey ? (
-              <p className="py-2 text-xs text-stone-500">Loading this farmer's swine...</p>
-            ) : farmerLoadErrors[farmerKey] ? (
-              <p role="alert" className="py-2 text-xs text-red-700">{farmerLoadErrors[farmerKey]}</p>
-            ) : !group.farmer.id ? (
-              <p className="py-2 text-xs text-stone-500">This record has no database farmer ID, so related swine cannot be loaded.</p>
-            ) : farmerRecords.length === 0 ? (
-              <p className="py-2 text-xs text-stone-500">No swine records found for this farmer.</p>
-            ) : (
-              farmerRecords.map(record => {
-                const registeredAt = new Date(record.registeredAt);
-                const gender = record.gender || record.sex;
-                const sexLabel = gender === 'male'
-                  ? 'Male (Intact)'
-                  : gender === 'female'
-                    ? 'Female (Gilt/Sow)'
-                    : gender === 'castrated'
-                      ? 'Castrated'
-                      : 'Sex not recorded';
-
-                return (
-                  <article
-                    key={record.id}
-                    className="flex flex-wrap items-center gap-3 rounded-xl border border-stone-200 bg-white p-3 shadow-2xs"
-                  >
-                    <SwinePhoto src={record.photoUrl} className="h-12 w-12 shrink-0" />
-                    <div className="min-w-[180px] flex-1 space-y-0.5">
-                      <p className="font-mono text-xs font-black text-emerald-950">
-                        {record.pigIdTag || record.earTagNo}
-                      </p>
-                      <p className="text-[10px] text-stone-500">
-                        {Number.isNaN(registeredAt.getTime())
-                          ? 'Registration date unavailable'
-                          : `Reg: ${registeredAt.toLocaleDateString()}`}
-                      </p>
-                      <p className="text-xs font-semibold text-stone-800">{record.breed || record.swineType}</p>
-                      <p className="text-[11px] text-stone-600">{sexLabel} · Brgy. {record.barangay}</p>
-                      <p className="text-[10px] text-stone-500">Status: {getStatusLabel(record.status)}</p>
-                    </div>
-                    <div className="flex items-center gap-1.5 sm:ml-auto">
-                      <button
-                        type="button"
-                        onClick={() => setViewingRecord(record)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 px-2 py-1.5 text-[10px] font-semibold text-emerald-800 transition hover:bg-emerald-50"
-                        title={t('records_view_details', 'View Full Record Details')}
-                      >
-                        <Eye className="h-3.5 w-3.5" /> View
-                      </button>
-                      {currentRole !== 'agent' && (
-                        <button
-                          type="button"
-                          onClick={() => onEditSwine(record)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-[10px] font-semibold text-stone-700 transition hover:bg-stone-50"
-                          title={t('records_edit_locked', 'Edit Record (Pig ID is locked)')}
-                        >
-                          <Edit className="h-3.5 w-3.5" /> Edit
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setPrintSingleRecord(record)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-[10px] font-semibold text-stone-700 transition hover:bg-stone-50"
-                        title={t('records_print_single', 'Print Swine Record Certificate')}
-                      >
-                        <Printer className="h-3.5 w-3.5" /> Print
-                      </button>
-                    </div>
-                  </article>
-                );
-              })
-            )}
-            {currentRole !== 'agent' && group.farmer.id && (
-              <div className="flex justify-end pt-1">
-                <button
-                  type="button"
-                  onClick={() => onAddSwine(group.farmer)}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-emerald-800"
-                >
-                  <Plus className="h-3.5 w-3.5" /> Add Swine
-                </button>
-              </div>
-            )}
-          </div>
-        </td>
-      </tr>
-    );
-  };
-
   // Sorting
   const sortedRecords = useMemo(() => {
     const list = [...filtered];
@@ -834,13 +684,78 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     return list;
   }, [filtered, sortFieldKey, sortOrder, activeFields]);
 
-  // Pagination Slice
+  const farmerGroups = useMemo(() => {
+    const groups = new Map<string, { farmer: FarmerSelection; records: EnhancedSwineRecord[] }>();
+
+    sortedRecords.forEach(record => {
+      const key = getFarmerGroupKey(record);
+      const group = groups.get(key);
+
+      if (group) {
+        group.records.push(record);
+      } else {
+        groups.set(key, {
+          farmer: {
+            id: record.farmerId,
+            farmerName: record.farmerName,
+            farmerContact: record.farmerContact,
+            farmerAddress: record.farmerAddress,
+            barangay: record.barangay,
+            farmName: record.farmName,
+            rsbsaId: record.rsbsaId,
+          },
+          records: [record],
+        });
+      }
+    });
+
+    return [...groups.entries()];
+  }, [sortedRecords]);
+
+  const groupByKey = useMemo(() => new Map(farmerGroups), [farmerGroups]);
+  const totalFarmerGroups = farmerGroups.length;
+
+  // Paginate farmers, keeping each farmer and all matching swine together.
   const totalRecords = sortedRecords.length;
-  const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
+  const totalPages = Math.max(1, Math.ceil(totalFarmerGroups / pageSize));
   const validCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
   const startIndex = (validCurrentPage - 1) * pageSize;
-  const endIndex = Math.min(startIndex + pageSize, totalRecords);
-  const paginatedRecords = sortedRecords.slice(startIndex, endIndex);
+  const endIndex = Math.min(startIndex + pageSize, totalFarmerGroups);
+  const paginatedFarmerGroups = farmerGroups.slice(startIndex, endIndex);
+  const paginatedRecords = paginatedFarmerGroups.flatMap(([, group]) => group.records);
+  const paginatedFarmerRepresentatives = paginatedFarmerGroups.map(([, group]) => group.records[0]);
+  const startRecordIndex =
+    totalRecords === 0
+      ? 0
+      : farmerGroups.slice(0, startIndex).reduce((total, [, group]) => total + group.records.length, 0) + 1;
+  const endRecordIndex =
+    totalRecords === 0
+      ? 0
+      : farmerGroups.slice(0, endIndex).reduce((total, [, group]) => total + group.records.length, 0);
+
+  useEffect(() => {
+    if (searchTerm.trim()) {
+      const query = searchTerm.toLowerCase().trim();
+      const queryClean = query.replace(/[^a-z0-9]/gi, '');
+      const taggedRecord = sortedRecords.find(record => {
+        const tags = [record.computedPigId, record.pigIdTag, record.earTagNo];
+        return tags.some(tag => {
+          const raw = (tag || '').toLowerCase();
+          const clean = raw.replace(/[^a-z0-9]/gi, '');
+          return raw.includes(query) ||
+            (queryClean.length >= 4 && clean.includes(queryClean) && (/^hin/i.test(query) || /^\d{4,}$/.test(queryClean)));
+        });
+      });
+      if (taggedRecord) {
+        const group = farmerGroups.find(([, entry]) => entry.records.some(record => record.id === taggedRecord.id));
+        if (group) setExpandedFarmerKey(group[0]);
+      }
+    }
+
+    if (expandedFarmerKey && !groupByKey.has(expandedFarmerKey)) {
+      setExpandedFarmerKey(null);
+    }
+  }, [searchTerm, sortedRecords, farmerGroups, groupByKey, expandedFarmerKey]);
 
   // Handlers
   const handleConfirmDelete = async () => {
@@ -867,6 +782,18 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
       } else {
         next.add(id);
       }
+      return next;
+    });
+  };
+
+  const handleToggleSelectFarmer = (records: SwineRecord[]) => {
+    setSelectedRecordIds(previous => {
+      const next = new Set(previous);
+      const allSelected = records.length > 0 && records.every(record => next.has(record.id));
+      records.forEach(record => {
+        if (allSelected) next.delete(record.id);
+        else next.add(record.id);
+      });
       return next;
     });
   };
@@ -933,6 +860,191 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   const handleToggleArchive = (id: string) => {
     storageService.toggleArchiveStatus(id);
     onRefresh();
+  };
+
+  const renderExpandedFarmerRow = (farmerKey: string, rowId: string) => {
+    const group = groupByKey.get(farmerKey);
+    if (!group) return null;
+    const panelId = `farmer-swines-${rowId}`;
+
+    return (
+      <tr key={`${rowId}-farmer-swines`} id={panelId}>
+        <td
+          colSpan={(currentRole === 'admin' ? 16 : 15) + customDynamicColumns.length}
+          className="border-b border-stone-200 bg-stone-50 px-5 py-3"
+        >
+          <div className="space-y-2">
+            <h4 className="text-[10px] font-bold uppercase tracking-wide text-stone-600">
+              Swine registered to {group.farmer.farmerName} ({group.records.length} swine)
+            </h4>
+            {group.records.map(record => {
+              const registeredAt = new Date(record.registeredAt);
+              const gender = record.gender || record.sex;
+              const sexLabel = gender === 'male'
+                ? 'Male (Intact)'
+                : gender === 'female'
+                  ? 'Female (Gilt/Sow)'
+                  : gender === 'castrated'
+                    ? 'Castrated'
+                    : 'Sex not recorded';
+              const selected = selectedRecordIds.has(record.id);
+
+              return (
+                <article
+                  key={record.id}
+                  className={`rounded-xl border p-3 shadow-2xs ${
+                    selected ? 'border-amber-300 bg-amber-50/70' : 'border-stone-200 bg-white'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-3">
+                    {currentRole === 'admin' && (
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => handleToggleSelectRecord(record.id)}
+                        className="h-4 w-4 rounded border-stone-300 accent-emerald-700"
+                        aria-label={`Select swine record ${record.computedPigId || record.earTagNo || record.id}`}
+                      />
+                    )}
+                    <SwinePhoto src={record.photoUrl} className="h-12 w-12 shrink-0" />
+                    <div className="min-w-[190px] flex-1 space-y-0.5">
+                      <p className="font-mono text-xs font-black text-emerald-950">
+                        <Lock className="mr-1 inline h-3 w-3 text-stone-400" />
+                        {record.computedPigId || record.pigIdTag || record.earTagNo}
+                      </p>
+                      <p className="text-[10px] text-stone-500">
+                        {Number.isNaN(registeredAt.getTime())
+                          ? 'Registration date unavailable'
+                          : `Reg: ${registeredAt.toLocaleDateString()}`}
+                        <span className="ml-2">{record.isSynced === false ? '· Pending Sync' : '· Synced'}</span>
+                      </p>
+                      <p className="text-xs font-semibold text-stone-800">{record.breed || record.swineType || 'Breed not recorded'}</p>
+                      <p className="text-[11px] text-stone-600">
+                        {sexLabel} · Brgy. {record.barangay || 'Not recorded'} · DOB: {record.birthDate ? formatDobDisplay(record.birthDate) : 'Not recorded'} · Age: {record.computedAgeLabel || 'Unavailable'}
+                      </p>
+                      <p className="text-[10px] text-stone-500">
+                        Status: {getStatusLabel(record.status)} · Type: {getSwineTypeLabel(record.swineType)} · Est. weight: {record.computedEstimatedWeight || '—'} · Actual weight: {record.computedActualWeight ? `${record.computedActualWeight} kg` : '—'}
+                      </p>
+                      <p className="text-[10px] text-stone-500">
+                        Farm scale: {getFarmScaleLabel(record.computedFarmScale)} · ASF zone: {record.computedAsfZone || getBarangayASFZone(record.barangay || '')} · Biosecurity: {record.computedHasWarning ? 'Warning' : 'No warning'}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1 sm:ml-auto">
+                      <button
+                        type="button"
+                        onClick={() => setViewingRecord(record)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 px-2 py-1.5 text-[10px] font-semibold text-emerald-800 transition hover:bg-emerald-50"
+                        title={t('records_view_details', 'View Full Record Details')}
+                      >
+                        <Eye className="h-3.5 w-3.5" /> View
+                      </button>
+                      {onViewOnMap && (
+                        <button
+                          type="button"
+                          onClick={() => onViewOnMap(record)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-teal-200 px-2 py-1.5 text-[10px] font-semibold text-teal-800 transition hover:bg-teal-50"
+                          title={t('records_locate_map', 'Locate on Hinunangan GIS Map')}
+                        >
+                          <MapPin className="h-3.5 w-3.5" /> Map
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setPrintSingleRecord(record)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-[10px] font-semibold text-stone-700 transition hover:bg-stone-50"
+                        title={t('records_print_single', 'Print Swine Record Certificate')}
+                      >
+                        <Printer className="h-3.5 w-3.5" /> Print
+                      </button>
+                      {currentRole !== 'agent' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => onEditSwine(record)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-[10px] font-semibold text-stone-700 transition hover:bg-stone-50"
+                            title={t('records_edit_locked', 'Edit Record (Pig ID is locked)')}
+                          >
+                            <Edit className="h-3.5 w-3.5" /> Edit
+                          </button>
+                          {record.status !== 'sold' && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleSell(record)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-[10px] font-semibold text-stone-700 transition hover:bg-stone-50"
+                                title={record.readyToSell ? t('records_unmark_sell', 'Unmark Ready to Sell') : t('records_mark_sell', 'Mark as Ready to Sell')}
+                              >
+                                <ShoppingBag className="h-3.5 w-3.5" /> Ready
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleMarkSold(record)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-blue-200 px-2 py-1.5 text-[10px] font-semibold text-blue-700 transition hover:bg-blue-50"
+                                title={t('records_mark_sold', 'Mark as Officially Sold')}
+                              >
+                                <CheckCircle className="h-3.5 w-3.5" /> Sold
+                              </button>
+                            </>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleArchive(record.id)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-[10px] font-semibold text-stone-700 transition hover:bg-stone-50"
+                            title={record.isArchived ? t('records_restore', 'Restore Record') : t('records_archive', 'Archive Record')}
+                          >
+                            {record.isArchived ? <ArchiveRestore className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
+                            {record.isArchived ? 'Restore' : 'Archive'}
+                          </button>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onIssueCertificate(record)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 px-2 py-1.5 text-[10px] font-semibold text-emerald-800 transition hover:bg-emerald-50"
+                        title={t('records_issue_cert', 'Generate Barangay Certificate')}
+                      >
+                        <FileText className="h-3.5 w-3.5" /> Certificate
+                      </button>
+                      {currentRole === 'admin' && (
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmRecord(record)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-2 py-1.5 text-[10px] font-semibold text-rose-700 transition hover:bg-rose-50"
+                          title={t('records_delete_record', 'Delete Swine Record')}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" /> Delete
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {customDynamicColumns.length > 0 && (
+                    <div className="mt-2 grid grid-cols-1 gap-2 border-t border-stone-100 pt-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {customDynamicColumns.map(item => (
+                        <div key={item.field.id} className="text-[10px] text-stone-600">
+                          <span className="font-bold">{item.field.label}: </span>
+                          {formatFieldValue(getFieldValue(record, item.field), item.field)}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+            {currentRole !== 'agent' && group.farmer.id && (
+              <div className="flex justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={() => onAddSwine(group.farmer)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-emerald-800"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Swine
+                </button>
+              </div>
+            )}
+          </div>
+        </td>
+      </tr>
+    );
   };
 
   // Export to CSV with fully recalculated derived values
@@ -1806,10 +1918,10 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               }}
               className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
             >
-              <option value={10}>10 / {t('pagination_rows_per_page', 'page')}</option>
-              <option value={25}>25 / {t('pagination_rows_per_page', 'page')}</option>
-              <option value={50}>50 / {t('pagination_rows_per_page', 'page')}</option>
-              <option value={100}>100 / {t('pagination_rows_per_page', 'page')}</option>
+              <option value={10}>10 farmer groups / page</option>
+              <option value={25}>25 farmer groups / page</option>
+              <option value={50}>50 farmer groups / page</option>
+              <option value={100}>100 farmer groups / page</option>
             </select>
           </div>
 
@@ -1832,8 +1944,8 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
           <div className="flex items-center gap-3">
             <span>
               {t('records_showing', {
-                start: totalRecords === 0 ? 0 : startIndex + 1,
-                end: endIndex,
+                start: startRecordIndex,
+                end: endRecordIndex,
                 total: totalRecords,
               })}
             </span>
@@ -2313,22 +2425,15 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                   </td>
                 </tr>
               ) : (
-                paginatedRecords.map(swine => {
-                  const isSelected = selectedRecordIds.has(swine.id);
-                  const farmerKey = swine.farmerId ? `farmer:${swine.farmerId}` : null;
-                  const isFarmerExpanded = Boolean(
-                    farmerKey &&
-                    expandedFarmerKey === farmerKey &&
-                    expandedFarmerRowId === swine.id
-                  );
-                  const farmerSwineCount = farmerKey && expandedFarmerRecords[farmerKey]
-                    ? expandedFarmerRecords[farmerKey].total
-                    : swine.farmerId
-                      ? enhancedSwineList.filter(record =>
-                          record.farmerId === swine.farmerId &&
-                          Boolean(record.isArchived) === showArchived
-                        ).length
-                      : 0;
+                paginatedFarmerRepresentatives.map(swine => {
+                  const farmerKey = getFarmerGroupKey(swine);
+                  const farmerGroup = groupByKey.get(farmerKey)!;
+                  const farmerRecords = farmerGroup.records;
+                  const farmerSelectedCount = farmerRecords.filter(record => selectedRecordIds.has(record.id)).length;
+                  const isSelected = farmerRecords.length > 0 && farmerSelectedCount === farmerRecords.length;
+                  const isFarmerExpanded = expandedFarmerKey === farmerKey;
+                  const farmerSwineCount = farmerRecords.length;
+                  const panelId = `farmer-swines-${swine.id}`;
                   return (
                   <React.Fragment key={swine.id}>
                     <tr
@@ -2348,9 +2453,14 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                         <input
                           type="checkbox"
                           checked={isSelected}
-                          onChange={() => handleToggleSelectRecord(swine.id)}
+                          ref={element => {
+                            if (element) {
+                              element.indeterminate = farmerSelectedCount > 0 && !isSelected;
+                            }
+                          }}
+                          onChange={() => handleToggleSelectFarmer(farmerRecords)}
                           className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-500 border-stone-300 cursor-pointer accent-emerald-700"
-                          aria-label={`Select swine record ${swine.computedPigId || swine.earTagNo || swine.id}`}
+                          aria-label={`Select all ${farmerSwineCount} swine records for ${farmerGroup.farmer.farmerName}`}
                         />
                       </td>
                     )}
@@ -2404,14 +2514,12 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                             onClick={() => {
                               if (isFarmerExpanded) {
                                 setExpandedFarmerKey(null);
-                                setExpandedFarmerRowId(null);
                               } else {
                                 setExpandedFarmerKey(farmerKey);
-                                setExpandedFarmerRowId(swine.id);
                               }
                             }}
                             aria-expanded={isFarmerExpanded}
-                            aria-controls={`farmer-swines-${swine.id}`}
+                            aria-controls={panelId}
                             className="mt-0.5 rounded-sm text-stone-500 transition hover:text-emerald-800 focus-visible:outline-2 focus-visible:outline-emerald-700"
                             title={isFarmerExpanded ? 'Collapse this farmer’s swine' : 'Expand this farmer’s swine'}
                           >
@@ -2428,14 +2536,12 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                               if (!farmerKey) return;
                               if (isFarmerExpanded) {
                                 setExpandedFarmerKey(null);
-                                setExpandedFarmerRowId(null);
                               } else {
                                 setExpandedFarmerKey(farmerKey);
-                                setExpandedFarmerRowId(swine.id);
                               }
                             }}
                             aria-expanded={isFarmerExpanded}
-                            aria-controls={farmerKey ? `farmer-swines-${swine.id}` : undefined}
+                            aria-controls={panelId}
                             className="text-left font-bold text-stone-900 disabled:cursor-default"
                           >
                             <HighlightMatch text={swine.farmerName} query={searchTerm} />
@@ -2700,7 +2806,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                       </div>
                     </td>
                     </tr>
-                    {isFarmerExpanded && farmerKey
+                    {isFarmerExpanded
                       ? renderExpandedFarmerRow(farmerKey, swine.id)
                       : null}
                   </React.Fragment>
@@ -2716,7 +2822,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
           <div className="px-4 py-3 bg-stone-50 border-t border-stone-200 flex flex-wrap items-center justify-between gap-3 text-xs">
             <div className="text-stone-600 font-medium flex items-center gap-2">
               <span>
-                {t('pagination_page', 'Page')} <strong>{validCurrentPage}</strong> {t('pagination_of', 'of')} <strong>{totalPages}</strong> ({totalRecords} {t('records_total_heads', 'records')})
+                {t('pagination_page', 'Page')} <strong>{validCurrentPage}</strong> {t('pagination_of', 'of')} <strong>{totalPages}</strong> ({totalFarmerGroups} farmers · {totalRecords} {t('records_total_heads', 'records')})
               </span>
               {currentRole === 'admin' && selectedRecordIds.size > 0 && (
                 <span className="text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 text-[11px]">
