@@ -364,6 +364,7 @@ export interface CertificateLogoItem {
   type: CertificateLogoType;
   position: CertificateLogoPosition;
   customUrl?: string;
+  storagePath?: string;
   barangayName?: string;
   widthPx: number;
   heightPx: number;
@@ -376,6 +377,7 @@ export interface CertificateWatermarkConfig {
   enabled: boolean;
   type: 'municipality' | 'barangay' | 'da' | 'province' | 'custom';
   customUrl?: string;
+  storagePath?: string;
   barangayName?: string;
   opacity: number; // e.g. 0.15
   position: 'center';
@@ -389,6 +391,7 @@ export interface CertificateDynamicSignatory {
   position: string;
   prefix?: string;
   signatureImageUrl?: string;
+  signatureStoragePath?: string;
   showSignatureImage?: boolean;
   showSignatureLine?: boolean;
   lineWidth?: string;
@@ -399,6 +402,27 @@ export interface CertificateDynamicSignatory {
   alignment?: 'left' | 'center' | 'right';
   section?: 'left' | 'middle' | 'right' | 'noted_by' | 'certified_by' | 'main';
   details?: string;
+}
+
+export interface CertificateLogoSettings {
+  leftLogoType: string;
+  leftLogoUrl?: string;
+  leftLogoStoragePath?: string;
+  leftBarangayName: string;
+  centerLogoType: string;
+  centerLogoUrl?: string;
+  centerLogoStoragePath?: string;
+  rightLogoType: string;
+  rightLogoUrl?: string;
+  rightLogoStoragePath?: string;
+  showWatermark: boolean;
+  watermarkType: string;
+  watermarkUrl?: string;
+  watermarkStoragePath?: string;
+  watermarkOpacity: number;
+  barangayEmail?: string;
+  barangayPhone?: string;
+  headerMotto?: string;
 }
 
 export interface CertificateHeaderConfig {
@@ -435,6 +459,7 @@ export interface CertificateTemplate {
   orientation: 'portrait' | 'landscape';
   header: CertificateHeaderConfig;
   logos: CertificateLogoItem[];
+  logoSettings?: CertificateLogoSettings;
   watermark: CertificateWatermarkConfig;
   bodyTemplate: string;
   noteText?: string;

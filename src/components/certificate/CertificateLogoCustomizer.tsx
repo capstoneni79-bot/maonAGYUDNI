@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Image,
   Upload,
@@ -20,27 +20,14 @@ import {
 } from '../common/OfficialSeals';
 import { HINUNANGAN_BARANGAYS } from '../../data/barangays';
 import { mediaApi } from '../../services/api';
+import type { CertificateLogoSettings } from '../../types';
 
-export interface CertificateLogoSettings {
-  leftLogoType: string;
-  leftLogoUrl?: string;
-  leftBarangayName: string;
-  centerLogoType: string;
-  centerLogoUrl?: string;
-  rightLogoType: string;
-  rightLogoUrl?: string;
-  showWatermark: boolean;
-  watermarkType: string;
-  watermarkUrl?: string;
-  watermarkOpacity: number;
-  barangayEmail?: string;
-  barangayPhone?: string;
-  headerMotto?: string;
-}
+export type { CertificateLogoSettings } from '../../types';
 
 interface CertificateLogoCustomizerProps {
   settings: CertificateLogoSettings;
   onChange: (updated: CertificateLogoSettings) => void;
+  onSave: (updated: CertificateLogoSettings) => Promise<void>;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -48,10 +35,22 @@ interface CertificateLogoCustomizerProps {
 export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps> = ({
   settings,
   onChange,
+  onSave,
   isOpen,
   onClose,
 }) => {
   const [localSettings, setLocalSettings] = useState<CertificateLogoSettings>(settings);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const wasOpen = useRef(false);
+
+  useEffect(() => {
+    if (isOpen && !wasOpen.current) {
+      setLocalSettings(settings);
+      setSaveError(null);
+    }
+    wasOpen.current = isOpen;
+  }, [isOpen, settings]);
 
   if (!isOpen) return null;
 
@@ -127,12 +126,27 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const asset = await mediaApi.uploadFile(file, 'certificates/logos');
-      const updated = { ...localSettings, [field]: asset.fileUrl };
+      const asset = await mediaApi.uploadCertificateAsset(file);
+      const storagePathField = `${field.replace('Url', '')}StoragePath` as
+        'leftLogoStoragePath' | 'centerLogoStoragePath' | 'rightLogoStoragePath' | 'watermarkStoragePath';
+      const updated = { ...localSettings, [field]: asset.fileUrl, [storagePathField]: asset.filePath };
       setLocalSettings(updated);
       onChange(updated);
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Unable to upload certificate logo to Supabase Storage.');
+      setSaveError(error instanceof Error ? error.message : 'Unable to upload certificate logo to Supabase Storage.');
+    }
+  };
+
+  const saveSettings = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      await onSave(localSettings);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Unable to save certificate logo settings.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -549,11 +563,21 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-bold cursor-pointer text-xs shadow-sm"
+            disabled={isSaving}
+            className="px-5 py-2 rounded-xl border border-stone-300 text-stone-700 hover:bg-stone-100 font-bold cursor-pointer text-xs disabled:opacity-50"
           >
-            Apply & Close
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void saveSettings()}
+            disabled={isSaving}
+            className="px-5 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-bold cursor-pointer text-xs shadow-sm disabled:cursor-wait disabled:opacity-50"
+          >
+            {isSaving ? 'Saving…' : 'Save Logos'}
           </button>
         </div>
+        {saveError && <p role="alert" className="text-xs font-semibold text-rose-700">{saveError}</p>}
       </div>
     </div>
   );

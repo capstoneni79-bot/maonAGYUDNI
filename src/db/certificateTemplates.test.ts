@@ -76,8 +76,13 @@ const client = {
     if (text.includes('SELECT id FROM public.barangays')) {
       return { rows: [{ id: 'barangay-ambacon' }] };
     }
-    if (text.includes('SELECT barangay_id FROM public.certificate_templates')) {
-      return { rows: rows.filter(row => row.code === values[0]).map(row => ({ barangay_id: row.barangay_id })) };
+    if (text.includes('SELECT barangay_id, updated_at FROM public.certificate_templates')) {
+      return {
+        rows: rows.filter(row => row.code === values[0]).map(row => ({
+          barangay_id: row.barangay_id,
+          updated_at: row.updated_at,
+        })),
+      };
     }
     if (text.includes('INSERT INTO public.certificate_templates')) {
       const [barangayId, code, name, body, templateData, isActive] = values as [
@@ -135,6 +140,19 @@ const updatedTemplate = await saveCertificateTemplate({ ...fullTemplate, name: '
 });
 assert.equal(updatedTemplate.id, fullTemplate.id, 'updates retain the persistent template code');
 assert.equal(updatedTemplate.name, 'Updated certification', 'updates return the persisted template values');
+rows = rows.map(row => row.code === fullTemplate.id
+  ? { ...row, updated_at: '2026-01-02T00:00:00.000Z' }
+  : row);
+await assert.rejects(
+  saveCertificateTemplate({ ...fullTemplate, name: 'Stale overwrite attempt' }, {
+    role: 'admin',
+    assignedBarangay: '',
+    isAdmin: true,
+  }),
+  /changed in another session/,
+  'rejects stale template updates instead of overwriting newer database changes',
+);
+rows = rows.map(row => row.code === fullTemplate.id ? { ...row, updated_at: now } : row);
 const refreshedTemplates = await getCertificateTemplates();
 assert.equal(
   refreshedTemplates.find(template => template.id === fullTemplate.id)?.name,
@@ -164,6 +182,29 @@ await assert.rejects(
   'rejects a focal person creating a template for another barangay',
 );
 await assert.rejects(
+  saveCertificateTemplate({
+    ...focalTemplate,
+    id: 'outside-logo-template',
+    logos: [{
+      id: 'restricted-logo',
+      type: 'custom',
+      position: 'left',
+      customUrl: 'https://example.invalid/restricted.png',
+      storagePath: 'barangays/bugho/certificate-assets/logo.png',
+      widthPx: 70,
+      heightPx: 70,
+      order: 1,
+      visible: true,
+    }],
+  }, {
+    role: 'focal',
+    assignedBarangay: 'Ambacon',
+    isAdmin: false,
+  }),
+  /assigned barangay/,
+  'rejects a focal person attaching another barangay private image to a template',
+);
+await assert.rejects(
   saveCertificateTemplate({ ...fullTemplate, id: 'new-template-id', barangay: 'Ambacon' }, {
     role: 'focal',
     assignedBarangay: 'Ambacon',
@@ -179,16 +220,20 @@ const schemaDefinition = [
   readFileSync(new URL('../../supabase/migrations/001_create_full_registry_schema.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../../supabase/migrations/008_certificate_templates_runtime_schema.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../../supabase/migrations/010_repair_certificate_template_runtime_column.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../supabase/migrations/011_certificate_template_assets_and_schema_repair.sql', import.meta.url), 'utf8'),
 ].join('\n');
 for (const column of ['code', 'name', 'template_body', 'css_styles', 'template_data', 'is_active', 'is_archived', 'created_at', 'updated_at']) {
   assert.match(schemaDefinition, new RegExp(`\\b${column}\\b`), `migrations define queried template column ${column}`);
 }
 const repairMigration = readFileSync(
-  new URL('../../supabase/migrations/010_repair_certificate_template_runtime_column.sql', import.meta.url),
+  new URL('../../supabase/migrations/011_certificate_template_assets_and_schema_repair.sql', import.meta.url),
   'utf8',
 );
 assert.match(repairMigration, /ADD COLUMN IF NOT EXISTS template_data JSONB NOT NULL DEFAULT '\{\}'::jsonb/i);
-assert.match(repairMigration, /ALTER COLUMN barangay_id DROP NOT NULL/i);
+assert.match(repairMigration, /ON public\.certificate_templates FOR INSERT TO authenticated/i);
+assert.match(repairMigration, /current_app_role\(\) = 'focal'/i);
+assert.match(repairMigration, /INSERT INTO storage\.buckets[\s\S]*?VALUES \('certificates', 'certificates', FALSE\)/i);
+assert.match(repairMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.certificate_templates/i);
 assert.doesNotMatch(repairMigration, /DROP TABLE|TRUNCATE|DELETE FROM public\.certificate_templates/i);
 
 templateQueryError = Object.assign(new Error('column ct.template_data does not exist'), { code: '42703' });

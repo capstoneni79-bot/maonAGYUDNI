@@ -219,10 +219,43 @@ async function upsertTemplate(
     : barangayName.toLowerCase() === 'all'
       ? null
       : barangayResult?.rows[0]?.id || null;
-  const existing = await client.query<{ barangay_id: string | null }>(
-    'SELECT barangay_id FROM public.certificate_templates WHERE code = $1 FOR UPDATE',
+  const logoSettings = objectValue(template.logoSettings);
+  const assetPaths = [
+    ...(Array.isArray(template.logos) ? template.logos.map(logo => logo.storagePath) : []),
+    template.watermark?.storagePath,
+    ...(Array.isArray(template.signatories) ? template.signatories.map(signatory => signatory.signatureStoragePath) : []),
+    logoSettings.leftLogoStoragePath,
+    logoSettings.centerLogoStoragePath,
+    logoSettings.rightLogoStoragePath,
+    logoSettings.watermarkStoragePath,
+  ].filter((path): path is string => typeof path === 'string' && path.length > 0);
+  for (const path of assetPaths) {
+    if (
+      path.includes('..') ||
+      !/^(?:shared\/certificate-assets|barangays\/[a-z0-9 _-]+\/certificate-assets)\/[a-z0-9._-]+$/i.test(path)
+    ) {
+      throw new Error('A certificate image must reference a valid Supabase Storage asset path.');
+    }
+    if (!scope.isAdmin && path.startsWith('barangays/')) {
+      const expectedFolder = scope.assignedBarangay.trim().toLocaleLowerCase().replace(/[^a-z0-9 _-]/g, '_');
+      if (path.split('/')[1].toLocaleLowerCase() !== expectedFolder) {
+        throw new Error('Focal Persons can only attach certificate images from shared assets or their assigned barangay.');
+      }
+    }
+  }
+  const existing = await client.query<{ barangay_id: string | null; updated_at: Date | string | null }>(
+    'SELECT barangay_id, updated_at FROM public.certificate_templates WHERE code = $1 FOR UPDATE',
     [template.id]
   );
+  if (existing.rows.length > 0) {
+    const expectedUpdatedAt = template.updatedAt ? new Date(template.updatedAt).getTime() : Number.NaN;
+    const currentUpdatedAt = existing.rows[0].updated_at
+      ? new Date(existing.rows[0].updated_at).getTime()
+      : Number.NaN;
+    if (!Number.isFinite(expectedUpdatedAt) || expectedUpdatedAt !== currentUpdatedAt) {
+      throw new Error('Certificate template changed in another session. Reload it before saving to avoid overwriting newer changes.');
+    }
+  }
   if (!scope.isAdmin && existing.rows.length > 0 && existing.rows[0].barangay_id !== barangayId) {
     throw new Error('Focal Persons cannot modify a shared template or a template belonging to another barangay.');
   }

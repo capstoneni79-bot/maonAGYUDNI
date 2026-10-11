@@ -40,10 +40,11 @@ import { AVAILABLE_PLACEHOLDERS } from '../../utils/templateReplacer';
 import { DynamicCertificateView } from './DynamicCertificateView';
 import { mediaApi, moduleDataApi } from '../../services/api';
 import { filterCertificateTemplates } from '../../utils/certificateTemplateFilters';
+import { useCertificateTemplateSync } from '../../hooks/useCertificateTemplateSync';
 
 interface CertificateTemplateEditorProps {
   initialTemplate?: CertificateTemplate;
-  onSave: (savedTemplate: CertificateTemplate) => Promise<CertificateTemplate | void>;
+  onSave: (savedTemplate: CertificateTemplate) => Promise<CertificateTemplate>;
   onClose?: () => void;
   isModal?: boolean;
   userRole?: string;
@@ -104,6 +105,8 @@ export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps>
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(true);
   const [templateLoadError, setTemplateLoadError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const templateLoadSequence = useRef(0);
+  const [isUploadingAsset, setIsUploadingAsset] = useState(false);
 
   // Selected template state
   const isFocalPerson = userRole === 'focal';
@@ -115,20 +118,43 @@ export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps>
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
   const loadTemplates = useCallback(async () => {
+    const sequence = ++templateLoadSequence.current;
     setIsLoadingTemplates(true);
     try {
-      setAvailableTemplates(await moduleDataApi.get<CertificateTemplate[]>('certificate_templates'));
+      const loaded = await moduleDataApi.get<CertificateTemplate[]>('certificate_templates');
+      if (sequence !== templateLoadSequence.current) return;
+      setAvailableTemplates(loaded);
+      setTemplate(current => {
+        const saved = loaded.find(item => item.id === current.id);
+        if (!saved) return current;
+        const logos = current.logos.map(logo => {
+          const refreshed = saved.logos.find(item => item.id === logo.id && item.storagePath === logo.storagePath);
+          return refreshed?.storagePath ? { ...logo, customUrl: refreshed.customUrl } : logo;
+        });
+        const signatories = current.signatories.map(signatory => {
+          const refreshed = saved.signatories.find(item =>
+            item.id === signatory.id && item.signatureStoragePath === signatory.signatureStoragePath
+          );
+          return refreshed?.signatureStoragePath
+            ? { ...signatory, signatureImageUrl: refreshed.signatureImageUrl }
+            : signatory;
+        });
+        const watermark = current.watermark.storagePath === saved.watermark.storagePath && saved.watermark.storagePath
+          ? { ...current.watermark, customUrl: saved.watermark.customUrl }
+          : current.watermark;
+        return { ...current, logos, signatories, watermark };
+      });
       setTemplateLoadError(null);
     } catch (error) {
-      setTemplateLoadError(error instanceof Error ? error.message : 'Unable to load report templates from database.');
+      if (sequence === templateLoadSequence.current) {
+        setTemplateLoadError(error instanceof Error ? error.message : 'Unable to load report templates from database.');
+      }
     } finally {
-      setIsLoadingTemplates(false);
+      if (sequence === templateLoadSequence.current) setIsLoadingTemplates(false);
     }
   }, []);
 
-  useEffect(() => {
-    void loadTemplates();
-  }, [loadTemplates]);
+  const templateSyncStatus = useCertificateTemplateSync(loadTemplates);
 
   // Search & Filters for Template Switcher
   const [searchQuery, setSearchQuery] = useState('');
@@ -148,6 +174,7 @@ export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps>
   );
   const [newLogoSize, setNewLogoSize] = useState<number>(70);
   const [newLogoCustomUrl, setNewLogoCustomUrl] = useState<string>('');
+  const [newLogoStoragePath, setNewLogoStoragePath] = useState<string | undefined>(undefined);
 
   const printRef = useRef<HTMLDivElement>(null);
 
@@ -199,7 +226,7 @@ export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps>
   const handleCreateNewTemplate = () => {
     const createBarangay = isFocalPerson ? assignedBarangay : template.barangay || 'All';
     const newTpl: CertificateTemplate = {
-      id: `tpl-custom-${Date.now()}`,
+      id: createTemplateId(),
       name: `Custom Certificate Format (${createBarangay || 'General'})`,
       barangay: createBarangay,
       documentType: 'Barangay Certification',
@@ -291,11 +318,8 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
       updatedAt: new Date().toISOString(),
     };
 
-    const updatedList = [newTpl, ...availableTemplates];
-    setAvailableTemplates(updatedList);
     setTemplate(newTpl);
-    setSaveNotice('Created new template! Edit parameters below.');
-    setTimeout(() => setSaveNotice(null), 3000);
+    setSaveNotice('New template draft opened. Save Template to store it in the database.');
   };
 
   // ==========================================
@@ -307,6 +331,7 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
     setNewLogoBarangay(template.barangay === 'All' ? 'NAVA' : template.barangay);
     setNewLogoSize(70);
     setNewLogoCustomUrl('');
+    setNewLogoStoragePath(undefined);
     setIsAddLogoModalOpen(true);
   };
 
@@ -317,6 +342,7 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
       position: newLogoPosition,
       barangayName: newLogoType === 'barangay' ? newLogoBarangay : undefined,
       customUrl: newLogoType === 'custom' ? newLogoCustomUrl : undefined,
+      storagePath: newLogoType === 'custom' ? newLogoStoragePath : undefined,
       widthPx: newLogoSize,
       heightPx: newLogoSize,
       order: (template.logos?.length || 0) + 1,
@@ -361,17 +387,21 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const asset = await mediaApi.uploadFile(file, 'certificates/templates/logos');
+      setIsUploadingAsset(true);
+      const asset = await mediaApi.uploadCertificateAsset(file);
       const url = asset.fileUrl;
       if (logoId) {
-        handleUpdateLogo(logoId, { type: 'custom', customUrl: url });
+        handleUpdateLogo(logoId, { type: 'custom', customUrl: url, storagePath: asset.filePath });
       } else {
         setNewLogoCustomUrl(url);
+        setNewLogoStoragePath(asset.filePath);
         setNewLogoType('custom');
       }
       setSaveNotice(null);
     } catch (error) {
       setSaveNotice(error instanceof Error ? error.message : 'Unable to upload certificate logo.');
+    } finally {
+      setIsUploadingAsset(false);
     }
   };
 
@@ -431,14 +461,18 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const asset = await mediaApi.uploadFile(file, 'certificates/templates/signatures');
+      setIsUploadingAsset(true);
+      const asset = await mediaApi.uploadCertificateAsset(file);
       handleUpdateSignatory(sigId, {
         signatureImageUrl: asset.fileUrl,
+        signatureStoragePath: asset.filePath,
         showSignatureImage: true,
       });
       setSaveNotice(null);
     } catch (error) {
       setSaveNotice(error instanceof Error ? error.message : 'Unable to upload certificate signature.');
+    } finally {
+      setIsUploadingAsset(false);
     }
   };
 
@@ -449,19 +483,23 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const asset = await mediaApi.uploadFile(file, 'certificates/templates/watermarks');
+      setIsUploadingAsset(true);
+      const asset = await mediaApi.uploadCertificateAsset(file);
       setTemplate(prev => ({
         ...prev,
         watermark: {
           ...prev.watermark,
           type: 'custom',
           customUrl: asset.fileUrl,
+          storagePath: asset.filePath,
           enabled: true,
         },
       }));
       setSaveNotice(null);
     } catch (error) {
       setSaveNotice(error instanceof Error ? error.message : 'Unable to upload certificate watermark.');
+    } finally {
+      setIsUploadingAsset(false);
     }
   };
 
@@ -489,13 +527,10 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
       return;
     }
     setIsSaving(true);
-    const updated = {
-      ...template,
-      updatedAt: new Date().toISOString(),
-    };
+    const updated = { ...template     };
     try {
-      const persisted = await onSave(updated);
-      const confirmedTemplate = persisted || updated;
+      const confirmedTemplate = await onSave(updated);
+      templateLoadSequence.current++;
       setTemplate(JSON.parse(JSON.stringify(confirmedTemplate)));
       setAvailableTemplates(previous => [confirmedTemplate, ...previous.filter(item => item.id !== confirmedTemplate.id)]);
       setSaveNotice('Template saved successfully.');
@@ -542,14 +577,21 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
 
         {/* Action buttons (Clean standard buttons) */}
         <div className="flex items-center gap-2">
+          <span role="status" className="hidden text-[10px] text-slate-300 sm:inline">
+            {templateSyncStatus === 'live'
+              ? 'Live sync active'
+              : templateSyncStatus === 'reconnecting'
+                ? 'Reconnecting · auto-refetch active'
+                : 'Auto-refetch active'}
+          </span>
           <button
             type="button"
             onClick={() => void handleSave()}
-            disabled={isSaving}
+            disabled={isSaving || isUploadingAsset}
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer disabled:cursor-wait disabled:opacity-60"
           >
             <Save className="w-4 h-4" />
-            <span>{isSaving ? 'Saving…' : 'Save Template'}</span>
+            <span>{isUploadingAsset ? 'Uploading image…' : isSaving ? 'Saving…' : 'Save Template'}</span>
           </button>
 
           <button

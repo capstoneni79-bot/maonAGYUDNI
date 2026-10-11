@@ -12,16 +12,18 @@ export function formatCertificateTemplateDatabaseError(error: unknown): Certific
   if (code === '42P01') {
     return {
       code,
-      message: 'A certificate-template table or related table is missing. Verify the applied application migrations, including 008_certificate_templates_runtime_schema.sql.',
+      message: 'A certificate-template table or related table is missing. Verify the applied application migrations, including 008_certificate_templates_runtime_schema.sql and 011_certificate_template_assets_and_schema_repair.sql.',
     };
   }
   if (code === '42703') {
     const missingColumn = message.match(/column\s+["']?([\w.]+)["']?\s+does not exist/i)?.[1];
     return {
       code,
-      message: missingColumn
-        ? `The configured database reports missing column "${missingColumn}" required by the certificate-template query. Confirm the application is connected to the intended Supabase project and that this column exists there.`
-        : 'The configured database reports a missing column required by the certificate-template query. Confirm the application is connected to the intended Supabase project and compare its live schema with the query.',
+      message: missingColumn === 'ct.template_data' || missingColumn === 'template_data'
+        ? `The configured database reports missing column "${missingColumn}" on public.certificate_templates. Apply 011_certificate_template_assets_and_schema_repair.sql to the intended Supabase project and verify the live table schema.`
+        : missingColumn
+          ? `The configured database reports missing column "${missingColumn}" required by the certificate-template query. Confirm the application is connected to the intended Supabase project and compare its live schema with the query.`
+          : 'The configured database reports a missing column required by the certificate-template query. Confirm the application is connected to the intended Supabase project and compare its live schema with the query.',
     };
   }
   if (code === '42501') {
@@ -63,6 +65,9 @@ export function formatCertificateTemplateDatabaseError(error: unknown): Certific
   }
   if (message.startsWith('Focal Persons can only') || message.startsWith('Focal Persons cannot')) {
     return { code: '403', message };
+  }
+  if (message.startsWith('Certificate template changed in another session')) {
+    return { code: '409', message };
   }
   return {
     code,

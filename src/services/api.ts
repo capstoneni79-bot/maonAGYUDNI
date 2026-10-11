@@ -590,6 +590,37 @@ export const mediaApi = {
     return this.upload({ fileName: file.name, mimeType: file.type, base64, category });
   },
 
+  async uploadCertificateAsset(file: File): Promise<{ filePath: string; fileUrl: string; fileSize: number }> {
+    const extensionsByMime: Record<string, string[]> = {
+      'image/jpeg': ['jpg', 'jpeg'],
+      'image/png': ['png'],
+      'image/webp': ['webp'],
+      'image/gif': ['gif'],
+    };
+    const extension = file.name.split('.').pop()?.toLowerCase() || '';
+    if (!extensionsByMime[file.type]?.includes(extension) || file.size === 0 || file.size > 15 * 1024 * 1024) {
+      throw new Error('Choose a JPEG, PNG, WebP, or GIF image no larger than 15 MB.');
+    }
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => typeof reader.result === 'string'
+        ? resolve(reader.result)
+        : reject(new Error('Unable to read the selected image.'));
+      reader.onerror = () => reject(new Error('Unable to read the selected image.'));
+      reader.readAsDataURL(file);
+    });
+    const res = await fetch('/api/certificate-assets/upload', {
+      method: 'POST',
+      headers: await getFreshAuthHeaders(),
+      body: JSON.stringify({ fileName: file.name, mimeType: file.type, base64 }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.success || !data.data?.filePath || !data.data?.fileUrl) {
+      throw new Error(data?.error || 'Unable to upload certificate image to private Supabase Storage.');
+    }
+    return data.data;
+  },
+
   async delete(id: string): Promise<boolean> {
     const res = await fetch(`/api/media/${encodeURIComponent(id)}`, {
       method: 'DELETE',

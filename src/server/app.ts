@@ -32,7 +32,12 @@ import { DEFAULT_SIDEBAR_THEME, INITIAL_REGISTRY_FORM_SCHEMA } from '../data/ini
 import { INITIAL_LANDING_CONFIG } from '../data/initialData.ts';
 import { DEFAULT_MASTER_CONFIG } from '../data/defaultMasterConfig.ts';
 import { INITIAL_LANDING_CMS_CONFIG } from '../data/initialLandingCmsData.ts';
-import { deleteLandingCmsAsset, uploadLandingCmsAsset } from './supabaseStorage.ts';
+import {
+  createCertificateAssetSignedUrl,
+  deleteLandingCmsAsset,
+  uploadCertificateAsset,
+  uploadLandingCmsAsset,
+} from './supabaseStorage.ts';
 import { interpretSuperAdminConfigCommand } from '../utils/configCommandInterpreter.ts';
 import { isValidPhilippinePhoneNumber, normalizePhilippinePhoneNumber, toFieldKey } from '../utils/registryFieldUtils.ts';
 import { getSupabaseAdminConfigError, getSupabaseAuthConfigStatus, supabaseAdminClient, supabaseAuthClient, supabaseAuthProjectRef } from '../lib/supabaseServer.ts';
@@ -333,6 +338,59 @@ export function createApp() {
     const isFocal = role === 'focal';
     const isAuthenticated = role !== 'guest';
     return { role, barangayId, assignedBarangay, userId, username, isSuperAdmin, isAdmin, isAgent, isFocal, isAuthenticated };
+  }
+
+  async function signTemplateAssetUrls(template: Awaited<ReturnType<typeof getCertificateTemplates>>[number], user: ReturnType<typeof getUserSecurityContext>) {
+    const sign = async (path?: string) => {
+      if (!path) return undefined;
+      if (!supabaseAdminClient) {
+        throw new Error(getSupabaseAdminConfigError() || 'Supabase Storage signing is not configured.');
+      }
+      if (!user.isAdmin && path.startsWith('barangays/')) {
+        const folderBarangay = path.split('/')[1];
+        if (folderBarangay.toLocaleLowerCase() !== user.assignedBarangay.trim().toLocaleLowerCase()) {
+          throw new Error('The certificate image is outside your assigned barangay scope.');
+        }
+      }
+      return createCertificateAssetSignedUrl(supabaseAdminClient, path);
+    };
+    const [logos, watermarkUrl, signatories, logoSettings] = await Promise.all([
+      Promise.all((template.logos || []).map(async logo => ({
+        ...logo,
+        customUrl: await sign(logo.storagePath) || logo.customUrl,
+      }))),
+      sign(template.watermark?.storagePath),
+      Promise.all((template.signatories || []).map(async signatory => ({
+        ...signatory,
+        signatureImageUrl: await sign(signatory.signatureStoragePath) || signatory.signatureImageUrl,
+      }))),
+      template.logoSettings
+        ? Promise.all([
+          sign(template.logoSettings.leftLogoStoragePath),
+          sign(template.logoSettings.centerLogoStoragePath),
+          sign(template.logoSettings.rightLogoStoragePath),
+          sign(template.logoSettings.watermarkStoragePath),
+        ])
+        : Promise.resolve(undefined),
+    ]);
+    return {
+      ...template,
+      logos,
+      watermark: {
+        ...template.watermark,
+        customUrl: watermarkUrl || template.watermark?.customUrl,
+      },
+      signatories,
+      ...(logoSettings ? {
+        logoSettings: {
+          ...template.logoSettings,
+          leftLogoUrl: logoSettings[0] || template.logoSettings?.leftLogoUrl,
+          centerLogoUrl: logoSettings[1] || template.logoSettings?.centerLogoUrl,
+          rightLogoUrl: logoSettings[2] || template.logoSettings?.rightLogoUrl,
+          watermarkUrl: logoSettings[3] || template.logoSettings?.watermarkUrl,
+        },
+      } : {}),
+    };
   }
 
   // =========================================================================
@@ -947,7 +1005,10 @@ export function createApp() {
       if (req.params.key === 'certificate_templates') {
         const templates = await getCertificateTemplates();
         const visibleTemplates = filterCertificateTemplatesForUser(templates, user);
-        return res.json({ success: true, data: visibleTemplates });
+        const signedTemplates = await Promise.all(
+          visibleTemplates.map(template => signTemplateAssetUrls(template, user))
+        );
+        return res.json({ success: true, data: signedTemplates });
       }
       let value = await getStoredSystemSetting(req.params.key);
       return res.json({ success: true, data: value ?? (sharedModuleArrayKeys.has(req.params.key) ? [] : {}) });
@@ -998,11 +1059,44 @@ export function createApp() {
         })
         : await setSystemSetting(req.params.key, req.body.data);
       if (req.params.key === 'certificate_templates') {
-        return res.json({ success: true, data: saved });
+        return res.json({ success: true, data: await signTemplateAssetUrls(saved, user) });
       }
       const confirmed = await getStoredSystemSetting(req.params.key);
       if (confirmed === null) throw new Error('Database did not return the saved module data.');
-      return res.json({ success: true, data: confirmed ?? saved });
+      return res.json({ success: true, data: confirmed ?? saved       });
+
+      app.post('/api/certificate-assets/upload', async (req, res) => {
+        const user = getUserSecurityContext(req);
+        if (!user.isAdmin && !user.isFocal) {
+          return res.status(403).json({ success: false, error: 'Only Admin, Super Admin, or Focal Person accounts can upload certificate images.' });
+        }
+        if (!supabaseAdminClient) {
+          return res.status(503).json({ success: false, error: getSupabaseAdminConfigError() });
+        }
+        const { fileName, base64, mimeType } = req.body || {};
+        if (typeof fileName !== 'string' || typeof base64 !== 'string' || typeof mimeType !== 'string') {
+          return res.status(400).json({ success: false, error: 'An image file, filename, and MIME type are required.' });
+        }
+        try {
+          const asset = await uploadCertificateAsset(
+            supabaseAdminClient,
+            fileName,
+            mimeType,
+            base64,
+            { isAdmin: user.isAdmin, assignedBarangay: user.assignedBarangay }
+          );
+          return res.status(201).json({ success: true, data: asset });
+        } catch (error) {
+          console.error('[certificate-assets] upload failed', {
+            userId: user.userId,
+            role: user.role,
+            detail: error instanceof Error ? error.message.slice(0, 300) : 'Unknown storage error',
+          });
+          const message = error instanceof Error ? error.message : 'Unable to upload the certificate image.';
+          const status = /image|mime|payload|15 MB|assigned barangay/i.test(message) ? 400 : 500;
+          return res.status(status).json({ success: false, error: message });
+        }
+      });
     } catch (error) {
       const failure = formatCertificateTemplateDatabaseError(error);
       console.error('[module-data] save failed', {
@@ -1010,7 +1104,7 @@ export function createApp() {
         code: failure.code,
         detail: error instanceof Error ? error.message.slice(0, 500) : 'Unknown database error',
       });
-      return res.status(failure.code === '403' ? 403 : 500).json({
+      return res.status(failure.code === '403' ? 403 : failure.code === '409' ? 409 : 500).json({
         success: false,
         error: req.params.key === 'certificate_templates'
           ? `Unable to save certificate templates. ${failure.message}`

@@ -73,6 +73,7 @@ import { calculateSwineAge, formatDobDisplay } from '../../utils/swineRegistryLo
 import { downloadElementAsPdf } from '../../utils/pdfUtils';
 import { printDocument } from '../../utils/printUtils';
 import { filterCertificateTemplates } from '../../utils/certificateTemplateFilters';
+import { useCertificateTemplateSync } from '../../hooks/useCertificateTemplateSync';
 
 interface CertificateManagerProps {
   swineList: SwineRecord[];
@@ -166,6 +167,19 @@ Ante-mortem clearance has been established, fees have been recorded, and the car
     ],
   },
 ];
+
+const DEFAULT_CERTIFICATE_LOGO_SETTINGS: CertificateLogoSettings = {
+  leftLogoType: 'barangay',
+  leftBarangayName: 'NAVA',
+  centerLogoType: 'municipality',
+  rightLogoType: 'bagong_pilipinas',
+  showWatermark: true,
+  watermarkType: 'municipality',
+  watermarkOpacity: 0.12,
+  barangayEmail: 'nava.hinunangan20@gmail.com',
+  barangayPhone: '09763070221',
+  headerMotto: '',
+};
 
 // Helper to parse Full Name into Family Name, Given Name, Middle Name
 function parseFullName(fullName: string): { familyName: string; givenName: string; middleName: string } {
@@ -319,18 +333,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
 
   // Logo & Seal Customizer Modal State
   const [isLogoModalOpen, setIsLogoModalOpen] = useState(false);
-  const [logoSettings, setLogoSettings] = useState<CertificateLogoSettings>({
-    leftLogoType: 'barangay',
-    leftBarangayName: 'NAVA',
-    centerLogoType: 'municipality',
-    rightLogoType: 'bagong_pilipinas',
-    showWatermark: true,
-    watermarkType: 'municipality',
-    watermarkOpacity: 0.12,
-    barangayEmail: 'nava.hinunangan20@gmail.com',
-    barangayPhone: '09763070221',
-    headerMotto: '',
-  });
+  const [logoSettings, setLogoSettings] = useState<CertificateLogoSettings>(DEFAULT_CERTIFICATE_LOGO_SETTINGS);
 
   // Dynamic Certificate Templates State
   const [templates, setTemplates] = useState<CertificateTemplate[]>([]);
@@ -338,38 +341,32 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
   const [archivedTemplateOverride, setArchivedTemplateOverride] = useState<CertificateTemplate | null>(null);
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(true);
   const [templateLoadError, setTemplateLoadError] = useState<string | null>(null);
+  const templateLoadSequence = useRef(0);
   const loadTemplates = useCallback(async () => {
+    const sequence = ++templateLoadSequence.current;
     setIsLoadingTemplates(true);
     try {
       const savedTemplates = await moduleDataApi.get<CertificateTemplate[]>('certificate_templates');
+      if (sequence !== templateLoadSequence.current) return;
       setTemplates(savedTemplates);
       setTemplateLoadError(null);
       setSelectedTemplateId(current => savedTemplates.some(template => template.id === current)
         ? current
         : savedTemplates[0]?.id || '');
     } catch (error) {
-      console.error('Unable to load report templates from database:', error);
-      setTemplateLoadError(error instanceof Error ? error.message : 'Unable to load templates from the database.');
+      if (sequence === templateLoadSequence.current) {
+        console.error('Unable to load report templates from database:', error);
+        setTemplateLoadError(error instanceof Error ? error.message : 'Unable to load templates from the database.');
+      }
     } finally {
-      setIsLoadingTemplates(false);
+      if (sequence === templateLoadSequence.current) setIsLoadingTemplates(false);
     }
-  }, []);
+  }, [currentUser?.id]);
   const [isTemplateEditorOpen, setIsTemplateEditorOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<CertificateTemplate | undefined>(undefined);
   const [latestSavedTemplate, setLatestSavedTemplate] = useState<CertificateTemplate | null>(null);
 
-  useEffect(() => {
-    void loadTemplates();
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible') void loadTemplates();
-    };
-    window.addEventListener('focus', refreshWhenVisible);
-    document.addEventListener('visibilitychange', refreshWhenVisible);
-    return () => {
-      window.removeEventListener('focus', refreshWhenVisible);
-      document.removeEventListener('visibilitychange', refreshWhenVisible);
-    };
-  }, [loadTemplates, currentUser?.id]);
+  useCertificateTemplateSync(loadTemplates, Boolean(currentUser?.id));
 
   // Template Search & Filters in Manager
   const [tplSearchQuery, setTplSearchQuery] = useState('');
@@ -404,6 +401,12 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
       activeTemplate.barangay.trim().toLocaleLowerCase() === userAssignedBarangay.trim().toLocaleLowerCase()
     )
   ));
+
+  useEffect(() => {
+    if (!isLogoModalOpen) {
+      setLogoSettings(activeTemplate?.logoSettings || DEFAULT_CERTIFICATE_LOGO_SETTINGS);
+    }
+  }, [activeTemplate?.id, activeTemplate?.updatedAt, activeTemplate?.logoSettings, isLogoModalOpen]);
 
   // Create Certificate Modal State
   const [isCreateCertModalOpen, setIsCreateCertModalOpen] = useState(false);
@@ -954,19 +957,36 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
             {/* Create Certificate Main Button */}
             {documentType === 'barangay_certification' && <button
               type="button"
-              onClick={() => setIsCreateCertModalOpen(true)}
+              onClick={() => {
+                if (canManageTemplates) {
+                  setEditingTemplate(undefined);
+                  setIsTemplateEditorOpen(true);
+                } else {
+                  setIsCreateCertModalOpen(true);
+                }
+              }}
               className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-400 px-4 py-2 text-xs font-black text-slate-950 shadow-xs transition hover:bg-amber-300 cursor-pointer"
             >
               <Plus className="w-4 h-4 stroke-[3]" />
               <span>Create / Issue Certificate</span>
             </button>}
+            {documentType === 'barangay_certification' && canManageTemplates && (
+              <button
+                type="button"
+                onClick={() => setIsCreateCertModalOpen(true)}
+                className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-emerald-700 bg-emerald-700 px-4 py-2 text-xs font-black text-white shadow-xs transition hover:bg-emerald-800"
+              >
+                <FileCheck className="w-4 h-4" />
+                <span>Issue Official Certificate</span>
+              </button>
+            )}
 
             <details className="relative">
               <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl border border-stone-300 bg-white px-3 text-xs font-semibold text-stone-700 hover:bg-stone-50 focus-visible:outline-2 focus-visible:outline-emerald-700 [&::-webkit-details-marker]:hidden">
                 More actions <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
               </summary>
               <div className="absolute right-0 z-40 mt-1 w-[min(14rem,calc(100vw-2rem))] rounded-xl border border-stone-200 bg-white p-1.5 shadow-xl">
-                <button type="button" onClick={event => { setIsLogoModalOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50">
+                <button type="button" disabled={!canManageActiveTemplate} onClick={event => { setIsLogoModalOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50">
                   <Sliders className="h-4 w-4 text-stone-500" /> Change logos & seals
                 </button>
                 <button type="button" onClick={event => { window.open('/', '_blank'); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50">
@@ -2284,9 +2304,29 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
       {/* Logo & Seal Customizer Modal */}
       <CertificateLogoCustomizer
         isOpen={isLogoModalOpen}
-        onClose={() => setIsLogoModalOpen(false)}
+        onClose={() => {
+          setLogoSettings(activeTemplate?.logoSettings || DEFAULT_CERTIFICATE_LOGO_SETTINGS);
+          setIsLogoModalOpen(false);
+        }}
         settings={logoSettings}
         onChange={updated => setLogoSettings(updated)}
+        onSave={async updated => {
+          if (!activeTemplate || !canManageActiveTemplate) {
+            throw new Error('Select a certificate template within your authorized scope before saving logo settings.');
+          }
+          const persisted = await moduleDataApi.save<CertificateTemplate>('certificate_templates', {
+            ...activeTemplate,
+            logoSettings: updated,
+          });
+          setTemplates(previous => [persisted, ...previous.filter(template => template.id !== persisted.id)]);
+          setSelectedTemplateId(persisted.id);
+          setLatestSavedTemplate(persisted);
+          setLogoSettings(persisted.logoSettings || updated);
+          setIsLogoModalOpen(false);
+          setExportNotice(`Logo settings for "${persisted.name}" saved successfully.`);
+          setTimeout(() => setExportNotice(null), 3500);
+          void loadTemplates();
+        }}
       />
 
       {/* Create / Edit Certificate Modal */}

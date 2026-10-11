@@ -28,6 +28,19 @@ export async function downloadElementAsPdf(
     marginMm = 10,
     scale = 2,
   } = options;
+  const images = Array.from(element.querySelectorAll('img'));
+  await Promise.all(images.map(async image => {
+    if (!image.complete) {
+      await new Promise<void>((resolve, reject) => {
+        image.addEventListener('load', () => resolve(), { once: true });
+        image.addEventListener('error', () => reject(new Error(`Unable to load certificate image "${image.alt || image.src}".`)), { once: true });
+      });
+    }
+    if (image.naturalWidth === 0) {
+      throw new Error(`Unable to load certificate image "${image.alt || image.src}".`);
+    }
+    await image.decode();
+  }));
   const canvas = await html2canvas(element, {
     scale,
     useCORS: true,
