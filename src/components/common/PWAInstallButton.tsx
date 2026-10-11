@@ -17,10 +17,11 @@ export const PWAInstallButton: React.FC<{ className?: string; compact?: boolean 
       <button
         onClick={install}
         title={t('sync_pwa_install')}
+        aria-label={t('sync_pwa_install')}
         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold shadow-xs transition cursor-pointer border border-emerald-500/40 ${className}`}
       >
         <Download className="w-3.5 h-3.5" />
-        <span>{t('sync_pwa_install')}</span>
+        <span className={compact ? 'hidden sm:inline' : undefined}>{t('sync_pwa_install')}</span>
       </button>
     );
   }
@@ -31,6 +32,7 @@ export const PWAInstallButton: React.FC<{ className?: string; compact?: boolean 
         <button
           onClick={() => setShowIOSGuide(true)}
           title="Install on iPhone / iPad"
+          aria-label="Install on iPhone / iPad"
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-medium border border-slate-700 transition cursor-pointer ${className}`}
         >
           <Smartphone className="w-3.5 h-3.5 text-emerald-400" />

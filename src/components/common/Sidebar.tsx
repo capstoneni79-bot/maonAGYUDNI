@@ -241,7 +241,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               type="button"
               onClick={() => onSelectTab('ready_to_sell')}
-              className="sidebar-theme-item w-full text-left px-3.5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-between transition cursor-pointer"
+              className="sidebar-theme-item min-h-11 w-full text-left px-3.5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-between transition cursor-pointer"
               data-active={activeTab === 'ready_to_sell' || activeTab === 'dashboard'}
               style={{
                 backgroundColor: activeTab === 'ready_to_sell' || activeTab === 'dashboard' ? 'var(--sidebar-active)' : undefined,
@@ -263,7 +263,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               type="button"
               onClick={() => onSelectTab('messages')}
-              className="sidebar-theme-item w-full text-left px-3.5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-between transition cursor-pointer"
+              className="sidebar-theme-item min-h-11 w-full text-left px-3.5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-between transition cursor-pointer"
               data-active={activeTab === 'messages'}
               style={{
                 backgroundColor: activeTab === 'messages' ? 'var(--sidebar-active)' : undefined,
@@ -285,7 +285,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               type="button"
               onClick={() => onSelectTab('account')}
-              className="sidebar-theme-item w-full text-left px-3.5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-3 transition cursor-pointer"
+              className="sidebar-theme-item min-h-11 w-full text-left px-3.5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-3 transition cursor-pointer"
               data-active={activeTab === 'account'}
               style={{
                 backgroundColor: activeTab === 'account' ? 'var(--sidebar-active)' : undefined,

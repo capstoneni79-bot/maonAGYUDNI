@@ -1,5 +1,58 @@
 @import "tailwindcss";
 
+html {
+  min-height: 100%;
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+@supports (min-height: 100dvh) {
+  body {
+    min-height: 100dvh;
+  }
+}
+
+#root {
+  min-height: 100vh;
+}
+
+@supports (min-height: 100dvh) {
+  #root {
+    min-height: 100dvh;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid #047857;
+  outline-offset: 2px;
+}
+
+.app-header {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.app-header button[aria-label],
+.app-header button[title] {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+@media (pointer: coarse) {
+  .app-header button {
+    min-height: 44px;
+  }
+
+  .sidebar-theme-root button:not(.absolute) {
+    min-height: 44px;
+  }
+}
+
 .sidebar-theme-root {
   background-color: var(--sidebar-background);
   color: var(--sidebar-text);

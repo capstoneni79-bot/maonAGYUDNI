@@ -86,8 +86,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-stone-200 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4 bg-stone-950/70 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-stone-200 bg-white shadow-2xl">
         {/* Header Ribbon */}
         <div className="bg-gradient-to-r from-emerald-950 via-emerald-900 to-teal-950 text-white p-6 relative">
           <button
@@ -125,7 +125,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <div className="p-6 space-y-5">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-6">
           <div className="absolute bottom-3 right-3 flex items-center gap-2 rounded-full border bg-white/90 px-2 py-1 text-[10px] font-semibold shadow-sm backdrop-blur-sm">
             <span className={`h-2.5 w-2.5 rounded-full ${dbConnectionStatus === 'connected' ? 'bg-emerald-500' : 'bg-red-500'} shadow-sm`} />
             <span className={dbConnectionStatus === 'connected' ? 'text-emerald-700' : 'text-red-700'}>

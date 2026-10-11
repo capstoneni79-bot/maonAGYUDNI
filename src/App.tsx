@@ -691,7 +691,7 @@ export default function App() {
   return (
     <div
       style={fontStyle}
-      className={`${currentRole === 'landing' ? 'min-h-screen' : 'h-screen max-h-screen overflow-hidden'} bg-slate-100 text-stone-900 flex flex-col font-sans antialiased selection:bg-emerald-200 relative`}
+      className={`${currentRole === 'landing' ? 'min-h-dvh' : 'h-dvh max-h-dvh overflow-hidden'} bg-slate-100 text-stone-900 flex flex-col font-sans antialiased selection:bg-emerald-200 relative`}
     >
       {/* Connected Interface Background Layer - Exclusively for Public Landing View */}
       {interfaceBg?.imageUrl && interfaceBg.enabled !== false && currentRole === 'landing' && (
@@ -755,7 +755,7 @@ export default function App() {
       />
 
       {/* Main Layout Container with Desktop Locked-In Docked Sidebar & Mobile Drawer */}
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 min-h-0 flex overflow-hidden relative">
         {/* Desktop Sidebar (Toggleable via left hamburger menu button) */}
         {currentRole !== 'landing' && isSidebarOpen && (
           <aside className="hidden lg:flex flex-col w-72 xl:w-80 shrink-0 border-r border-transparent bg-transparent z-20 h-full overflow-hidden transition-all duration-200">
@@ -817,7 +817,7 @@ export default function App() {
           style={{
             backgroundColor: currentRole !== 'landing' && colors?.backgroundColor ? colors.backgroundColor : undefined,
           }}
-          className="flex-1 w-full min-w-0 overflow-y-auto text-stone-900 relative z-10"
+          className="flex-1 min-h-0 w-full min-w-0 overflow-y-auto text-stone-900 relative z-10"
         >
           <Suspense fallback={<ViewLoader />}>
             {currentRole === 'landing' ? (

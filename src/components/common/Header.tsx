@@ -139,11 +139,11 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-stone-200 shadow-xs">
+    <header className="app-header sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-stone-200 shadow-xs">
       {/* Main navigation bar */}
-      <div className="w-full px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between gap-4">
+      <div className="w-full px-2 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between gap-2 sm:gap-4">
         {/* Left: [☰] [Logo + DA Hinunangan] */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           {/* Hamburger / Menu Button (Extreme FAR LEFT, 1st interactive element) */}
           {currentRole === 'landing' ? (
             <button
@@ -151,6 +151,7 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={() => setIsLandingNavOpen(prev => !prev)}
               className="lg:hidden p-2 rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-100 transition cursor-pointer shrink-0 shadow-2xs"
               aria-label="Toggle navigation menu"
+              aria-expanded={isLandingNavOpen}
               title="Toggle navigation menu"
             >
               {isLandingNavOpen ? <X className="w-5 h-5 text-emerald-800" /> : <Menu className="w-5 h-5 text-stone-800" />}
@@ -161,6 +162,7 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={onToggleSidebar}
               className="p-2 rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-100 hover:text-emerald-800 transition cursor-pointer shrink-0 shadow-2xs focus:outline-hidden focus:ring-2 focus:ring-emerald-500/30"
               aria-label="Toggle navigation menu"
+              aria-expanded={isSidebarOpen}
               title="Toggle navigation sidebar"
             >
               <Menu className="w-5 h-5 text-stone-800" />
@@ -170,7 +172,7 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Brand Logo & Title (Immediately after menu button) */}
           <div
             onClick={() => onSelectRole('landing')}
-            className="flex items-center gap-2.5 cursor-pointer group select-none"
+            className="flex min-w-0 items-center gap-2.5 cursor-pointer group select-none"
           >
             <img
               src={activeHeaderLogo}
@@ -178,14 +180,14 @@ export const Header: React.FC<HeaderProps> = ({
               className="w-9 h-9 sm:w-10 sm:h-10 object-contain rounded-xl shadow-xs group-hover:scale-105 transition transform"
               referrerPolicy="no-referrer"
             />
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-lg font-black tracking-tight text-emerald-950 leading-none">
+                <h1 className="truncate text-base sm:text-lg font-black tracking-tight text-emerald-950 leading-none">
                   {t('header_da_title')}
                 </h1>
                 <div className="hidden md:block">{getRoleBadge()}</div>
               </div>
-              <p className="text-[10px] sm:text-[11px] text-stone-500 font-semibold tracking-wide">
+              <p className="hidden min-[360px]:block truncate text-[10px] sm:text-[11px] text-stone-500 font-semibold tracking-wide">
                 {t('header_da_sub')}
               </p>
             </div>
@@ -209,7 +211,7 @@ export const Header: React.FC<HeaderProps> = ({
         )}
 
         {/* Right Actions & User Account */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-3">
           <PWAInstallButton compact />
 
           {/* Messages Alert */}
@@ -230,7 +232,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* User Profile Chip & Sign Out Button (When logged in) */}
           {currentUser && currentRole !== 'landing' && (
-            <div className="flex items-center gap-2 pl-2 border-l border-stone-200">
+            <div className="flex items-center gap-1 sm:gap-2 pl-1 sm:pl-2 border-l border-stone-200">
               <div className="w-8 h-8 rounded-xl bg-emerald-800 text-white font-black text-xs flex items-center justify-center shadow-2xs">
                 {currentUser.fullName ? currentUser.fullName.charAt(0).toUpperCase() : 'U'}
               </div>
@@ -264,10 +266,11 @@ export const Header: React.FC<HeaderProps> = ({
           {!currentUser && (
             <button
               onClick={onOpenLogin}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-800 to-teal-800 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm hover:shadow-md transition cursor-pointer"
+              className="px-2 sm:px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-800 to-teal-800 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm hover:shadow-md transition cursor-pointer"
+              aria-label={t('btn_login', 'Official Login')}
             >
               <LogIn className="w-3.5 h-3.5 text-emerald-300" />
-              <span>{t('btn_login', 'Official Login')}</span>
+              <span className="hidden min-[360px]:inline">{t('btn_login', 'Official Login')}</span>
             </button>
           )}
         </div>

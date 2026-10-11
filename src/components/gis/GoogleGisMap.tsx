@@ -412,7 +412,7 @@ export const GoogleGisMap: React.FC<GoogleGisMapProps> = ({
   };
 
   return (
-    <div className="relative w-full h-[640px] md:h-[720px] rounded-2xl overflow-hidden shadow-xl border border-stone-200 bg-stone-900 select-none">
+    <div className="relative w-full h-[min(66dvh,720px)] min-h-[320px] overflow-hidden rounded-2xl border border-stone-200 bg-stone-900 shadow-xl select-none md:h-[min(76dvh,900px)] 2xl:h-[min(82dvh,1100px)]">
       {/* Top Warning Banner for Access Control */}
       {accessWarning && (
         <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 bg-rose-600/95 text-white px-5 py-2.5 rounded-xl shadow-2xl flex items-center gap-3 backdrop-blur-md border border-rose-300 animate-bounce text-sm font-semibold">
