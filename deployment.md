@@ -27,9 +27,9 @@ The goal is simple: push the code to GitHub, connect that repo to Vercel, add th
 3. Choose a project name, region, and database password
 4. Wait for Supabase to finish provisioning
 5. In the left menu, open SQL Editor
-6. Run the SQL from [supabase_schema.sql](supabase_schema.sql) to create the tables and PostGIS setup
+6. Apply every SQL file in `supabase/migrations` in ascending filename order, from `001` through `008`, waiting for each file to finish before running the next.
 
-Important: do not skip PostGIS. The app checks the database schema and expects PostgreSQL tables to exist.
+The migration sequence creates the application schema, authentication and row-level security policies, and the certificate-template table/configuration used by Print Official Reports. The legacy root-level [supabase_schema.sql](supabase_schema.sql) is not a replacement for these migrations. On an existing project, apply any unapplied migrations in order.
 
 ---
 

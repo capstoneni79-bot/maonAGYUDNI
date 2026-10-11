@@ -19,6 +19,8 @@ import {
 import { TransmittalLetter, UserAccount } from '../../types';
 import { storageService } from '../../services/storageService';
 import { SealBagongPilipinas, SealDA, SealMunicipality } from '../common/OfficialSeals';
+import { downloadElementAsPdf } from '../../utils/pdfUtils';
+import { printDocument } from '../../utils/printUtils';
 
 interface TransmittalLetterManagerProps {
   currentUser?: UserAccount | null;
@@ -72,28 +74,27 @@ export const TransmittalLetterManager: React.FC<TransmittalLetterManagerProps> =
   // Placeholder replacer function
   const renderTransmittalBody = (letter?: TransmittalLetter | null): string => {
     if (!letter) return '';
-    let body = letter.contentTemplate || (letter as any).body || '';
-    const formattedDate = new Date(letter.date || Date.now()).toLocaleDateString('en-US', {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    });
+    let body = letter.contentTemplate || '';
+    const parsedDate = letter.date ? new Date(letter.date) : null;
+    const formattedDate = parsedDate && !Number.isNaN(parsedDate.getTime())
+      ? parsedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      : '—';
 
     const docListFormatted = (letter.documentList || [])
       .map((doc, idx) => `${idx + 1}. ${doc}`)
       .join('\n');
 
     body = (body || '')
-      .replace(/\{\{transmittal_number\}\}/g, letter.refNo || 'TM-OMAS-2026-001')
-      .replace(/\{\{ref_no\}\}/g, letter.refNo || 'TM-OMAS-2026-001')
+      .replace(/\{\{transmittal_number\}\}/g, letter.refNo || '—')
+      .replace(/\{\{ref_no\}\}/g, letter.refNo || '—')
       .replace(/\{\{date\}\}/g, formattedDate)
-      .replace(/\{\{from\}\}/g, `${letter.from || 'Office of the Municipal Agriculturist'}${letter.fromTitle ? `, ${letter.fromTitle}` : ''}`)
+      .replace(/\{\{from\}\}/g, `${letter.from || '—'}${letter.fromTitle ? `, ${letter.fromTitle}` : ''}`)
       .replace(/\{\{to\}\}/g, letter.to || '')
       .replace(/\{\{subject\}\}/g, letter.subject || '')
-      .replace(/\{\{barangay\}\}/g, letter.barangay || 'Hinunangan Barangays')
+      .replace(/\{\{barangay\}\}/g, letter.barangay || '—')
       .replace(/\{\{municipality\}\}/g, letter.municipality || 'Hinunangan')
       .replace(/\{\{province\}\}/g, letter.province || 'Southern Leyte')
-      .replace(/\{\{document_count\}\}/g, String(letter.documentCount || letter.documentList?.length || 1))
+      .replace(/\{\{document_count\}\}/g, String(letter.documentCount ?? letter.documentList?.length ?? '—'))
       .replace(/\{\{document_list\}\}/g, docListFormatted)
       .replace(/\{\{prepared_by\}\}/g, letter.preparedBy || '');
 
@@ -102,60 +103,64 @@ export const TransmittalLetterManager: React.FC<TransmittalLetterManagerProps> =
 
   // Trigger Print
   const handlePrint = () => {
-    document.body.dataset.printTarget = 'transmittal';
-    window.addEventListener('afterprint', () => delete document.body.dataset.printTarget, { once: true });
-    window.print();
+    if (!printRef.current || !selectedLetter) {
+      onNotice?.('Select a saved transmittal letter before printing.');
+      return;
+    }
+    try {
+      printDocument('transmittal');
+    } catch (error) {
+      onNotice?.(error instanceof Error ? error.message : 'Unable to open the browser print dialog.');
+    }
   };
 
-  // Trigger PDF Export / Print
-  const handleExportPdf = () => {
+  const handleExportPdf = async () => {
+    if (!printRef.current || !selectedLetter) {
+      onNotice?.('Select a saved transmittal letter before downloading a PDF.');
+      return;
+    }
     setIsExportingPdf(true);
     try {
-      document.body.dataset.printTarget = 'transmittal';
-      window.addEventListener('afterprint', () => delete document.body.dataset.printTarget, { once: true });
-      window.print();
-      onNotice?.(`Transmittal Letter ${selectedLetter?.refNo} ready for PDF export & printing!`);
-    } catch (err) {
-      console.error(err);
+      await downloadElementAsPdf(
+        printRef.current,
+        `Transmittal-${selectedLetter.refNo || 'letter'}-${Date.now()}.pdf`,
+        { format: 'letter', orientation: 'portrait', marginMm: 12 }
+      );
+      onNotice?.(`Transmittal Letter ${selectedLetter.refNo || ''} downloaded as PDF.`);
+    } catch (error) {
+      onNotice?.(error instanceof Error ? `Transmittal PDF generation failed: ${error.message}` : 'Transmittal PDF generation failed.');
     } finally {
       setIsExportingPdf(false);
     }
   };
 
   const handleOpenCreate = () => {
-    const year = new Date().getFullYear();
-    const rand = Math.floor(100 + Math.random() * 900);
     const newDoc: TransmittalLetter = {
       id: 'transmittal-' + Date.now(),
-      refNo: `TM-OMAS-${year}-${rand}`,
+      refNo: '',
       date: new Date().toISOString().split('T')[0],
-      from: currentUser?.name || 'Engr. Arnel M. Vasquez',
-      fromTitle: 'Municipal Agriculturist',
-      to: 'Provincial Veterinary Office (PVO)\nProvince of Southern Leyte\nCapitol Site, Asuncion, Maasin City',
-      toTitle: 'Provincial Veterinarian',
-      subject: 'TRANSMITTAL OF BARANGAY SWINE REGISTRY & ASF CLEARANCE CERTIFICATES',
-      barangay: 'All 40 Barangays of Hinunangan',
+      from: currentUser?.name || '',
+      fromTitle: '',
+      to: '',
+      toTitle: '',
+      subject: '',
+      barangay: '',
       municipality: 'Hinunangan',
       province: 'Southern Leyte',
-      documentCount: 1,
-      documentList: [
-        'Masterlist of Registered Swine Raisers with GPS Map',
-        'Official Barangay Biosecurity Inspection Clearance Certificates',
-      ],
-      preparedBy: currentUser?.name || 'HON. VICENTE T. MADRONERO JR.',
-      preparedByTitle: 'LGU Swine Registry Coordinator',
-      verifiedBy: 'RANDY N. BURLAZA',
-      verifiedByTitle: 'Barangay Biosecurity Officer (BBO)',
-      approvedBy: 'ENGR. ARNEL M. VASQUEZ',
-      approvedByTitle: 'Municipal Agriculturist',
-      contentTemplate: `Respectfully transmitting herewith the attached official document sets from the Department of Agriculture - Office of the Municipal Agriculturist (DA-OMAS), Municipality of Hinunangan, Southern Leyte:
+      documentCount: 0,
+      documentList: [],
+      preparedBy: currentUser?.name || '',
+      preparedByTitle: '',
+      verifiedBy: '',
+      verifiedByTitle: '',
+      approvedBy: '',
+      approvedByTitle: '',
+      contentTemplate: `Respectfully transmitting the following documents:
 
 {{document_list}}
 
-These documents confirm compliance with municipal biosecurity protocols and active swine surveillance across {{barangay}}, Municipality of {{municipality}}, {{province}}.
-
-For your information, verification, and official file.`,
-      status: 'submitted',
+For your information and official file.`,
+      status: 'draft',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };

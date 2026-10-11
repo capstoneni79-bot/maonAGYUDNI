@@ -261,8 +261,6 @@ body {
     padding: 10mm 12mm !important;
     border: none !important;
     box-shadow: none !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
   }
 
   @page {
@@ -271,6 +269,11 @@ body {
   }
 
   @page certificate {
+    size: letter portrait;
+    margin: 0;
+  }
+
+  @page certificate-template-preview {
     size: letter portrait;
     margin: 0;
   }
@@ -301,6 +304,26 @@ body {
   }
 
   @page transmittal {
+    size: letter portrait;
+    margin: 12mm;
+  }
+
+  @page legal-document {
+    size: letter portrait;
+    margin: 12mm;
+  }
+
+  @page legal-source {
+    size: letter portrait;
+    margin: 10mm;
+  }
+
+  @page biosecurity-certificate {
+    size: letter portrait;
+    margin: 12mm;
+  }
+
+  @page takeoff-record {
     size: letter portrait;
     margin: 12mm;
   }
@@ -359,6 +382,10 @@ body {
     page: certificate;
   }
 
+  body[data-print-target="certificate-template-preview"] [data-print-document="certificate-template-preview"] {
+    page: certificate-template-preview;
+  }
+
   body[data-print-target="swine-record"] [data-print-document="swine-record"] {
     page: swine-record;
   }
@@ -381,6 +408,28 @@ body {
 
   body[data-print-target="transmittal"] [data-print-document="transmittal"] {
     page: transmittal;
+  }
+
+  body[data-print-target="legal-document"] [data-print-document="legal-document"] {
+    page: legal-document;
+  }
+
+  body[data-print-target="legal-source"] [data-print-document="legal-source"] {
+    page: legal-source;
+  }
+
+  body[data-print-target="biosecurity-certificate"] [data-print-document="biosecurity-certificate"] {
+    page: biosecurity-certificate;
+  }
+
+  body[data-print-target="takeoff-record"] [data-print-document="takeoff-record"] {
+    page: takeoff-record;
+  }
+
+  body[data-print-target] [data-print-document] {
+    box-sizing: border-box !important;
+    height: auto !important;
+    max-height: none !important;
   }
 
   body[data-print-target] .overflow-x-auto {

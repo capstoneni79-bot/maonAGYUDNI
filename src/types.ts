@@ -426,6 +426,7 @@ export interface CertificateTemplate {
   id: string;
   name: string;
   barangay: string;
+  barangayId?: string;
   documentType: string;
   documentTitle: string;
   titleFont: 'gothic' | 'serif_underline' | 'serif_bold' | 'sans_bold';

@@ -24,6 +24,7 @@ import {
 import { Barangay, BarangayBiosecurityAudit, BiosecurityIncident, RiskLevel, SwineRecord, UserAccount } from '../../types';
 import { storageService } from '../../services/storageService';
 import { biosecurityApi } from '../../services/api';
+import { printDocument } from '../../utils/printUtils';
 
 interface BarangayBiosecurityProps {
   barangays: Barangay[];
@@ -72,6 +73,7 @@ export const BarangayBiosecurity: React.FC<BarangayBiosecurityProps> = ({
   const [isIncidentModalOpen, setIsIncidentModalOpen] = useState(false);
   const [isAdvisoryModalOpen, setIsAdvisoryModalOpen] = useState(false);
   const [printingAudit, setPrintingAudit] = useState<BarangayBiosecurityAudit | null>(null);
+  const [printNotice, setPrintNotice] = useState('');
 
   // Form states for New / Edit Audit
   const [auditForm, setAuditForm] = useState<Partial<BarangayBiosecurityAudit>>({
@@ -379,6 +381,11 @@ export const BarangayBiosecurity: React.FC<BarangayBiosecurityProps> = ({
             {databaseError && (
               <div role="alert" className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
                 {databaseError}
+              </div>
+            )}
+            {printNotice && (
+              <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {printNotice}
               </div>
             )}
       {/* Top Banner / Hero Card */}
@@ -753,30 +760,17 @@ export const BarangayBiosecurity: React.FC<BarangayBiosecurityProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      const targetAudit = selectedAudit || {
-                        id: `audit-${selectedBarangay.id}`,
-                        barangay: selectedBarangay.name,
-                        auditDate: new Date().toISOString().split('T')[0],
-                        auditorName: currentUser?.name || 'MAO Inspector',
-                        biosecurityLevel: 2,
-                        complianceScore: 85,
-                        footbathsOperational: true,
-                        vehicleDisinfectionStation: true,
-                        quarantineCheckpointActive: true,
-                        deadSwineDisposalFacility: true,
-                        swillFeedingBanEnforced: true,
-                        visitorLogCompliance: true,
-                        waterChlorination: true,
-                        perimeterFencingAudit: true,
-                        asfZone: selectedBarangay.riskLevel,
-                        status: 'compliant',
-                        notes: '',
-                        updatedAt: new Date().toISOString(),
-                      };
-                      setPrintingAudit(targetAudit);
+                      if (!selectedAudit) {
+                        setPrintNotice('Save an audit record before printing its report.');
+                        return;
+                      }
+                      setPrintNotice('');
+                      setPrintingAudit(selectedAudit);
                     }}
-                    className="px-3.5 py-2 rounded-xl border border-stone-300 hover:bg-stone-50 text-stone-700 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                    disabled={!selectedAudit}
+                    className="px-3.5 py-2 rounded-xl border border-stone-300 hover:bg-stone-50 text-stone-700 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                     title="Print Official Biosecurity Certificate"
+                    aria-label={selectedAudit ? 'Print saved biosecurity audit' : 'Save an audit before printing'}
                   >
                     <Printer className="w-4 h-4 text-stone-600" />
                     <span>Print Certificate</span>
@@ -1745,7 +1739,7 @@ export const BarangayBiosecurity: React.FC<BarangayBiosecurityProps> = ({
       {/* PRINT PREVIEW / CERTIFICATE MODAL */}
       {printingAudit && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl border border-stone-200 overflow-hidden my-8 p-8 space-y-6">
+          <div data-print-document="biosecurity-certificate" className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl border border-stone-200 overflow-hidden my-8 p-8 space-y-6">
             {/* Header with Republic of the Philippines */}
             <div className="text-center space-y-1 border-b-2 border-emerald-900 pb-4">
               <div className="text-[11px] uppercase tracking-widest text-stone-500 font-semibold">
@@ -1758,14 +1752,14 @@ export const BarangayBiosecurity: React.FC<BarangayBiosecurityProps> = ({
                 Office of the Municipal Agriculturist (MAO)
               </div>
               <div className="text-sm font-black text-stone-800 uppercase tracking-wide pt-2">
-                Certificate of Barangay Biosecurity Compliance
+                Barangay Biosecurity Audit Record
               </div>
             </div>
 
             {/* Certificate Body */}
             <div className="space-y-4 text-xs text-stone-800 leading-relaxed">
               <p>
-                This is to officially certify that <strong>Barangay {printingAudit.barangay}</strong>, Municipality of Hinunangan, has undergone comprehensive biosurveillance and biosecurity field inspection conducted on <strong>{printingAudit.auditDate}</strong>.
+                Saved audit record for <strong>Barangay {printingAudit.barangay}</strong>, Municipality of Hinunangan, dated <strong>{printingAudit.auditDate}</strong>.
               </p>
 
               <div className="bg-stone-50 border border-stone-200 p-4 rounded-xl space-y-2">
@@ -1775,7 +1769,7 @@ export const BarangayBiosecurity: React.FC<BarangayBiosecurityProps> = ({
                 </div>
                 <div className="flex justify-between font-semibold">
                   <span>Biosecurity Classification:</span>
-                  <span className="font-bold text-emerald-900">LEVEL {printingAudit.biosecurityLevel} CERTIFIED</span>
+                  <span className="font-bold text-emerald-900">LEVEL {printingAudit.biosecurityLevel}</span>
                 </div>
                 <div className="flex justify-between font-semibold">
                   <span>Overall Compliance Score:</span>
@@ -1788,7 +1782,7 @@ export const BarangayBiosecurity: React.FC<BarangayBiosecurityProps> = ({
               </div>
 
               <p className="text-[11px] text-stone-600 italic">
-                "{printingAudit.notes || 'Routine municipal biosurveillance audit certified compliant with national DA-BAI protocols.'}"
+                "{printingAudit.notes || 'No notes recorded.'}"
               </p>
             </div>
 
@@ -1799,8 +1793,8 @@ export const BarangayBiosecurity: React.FC<BarangayBiosecurityProps> = ({
                 <div className="text-[10px] text-stone-500">Municipal Biosecurity Inspector</div>
               </div>
               <div>
-                <div className="font-bold text-stone-900 underline uppercase">ENGR. ARNEL M. VASQUEZ</div>
-                <div className="text-[10px] text-stone-500">Municipal Agriculturist (MAO)</div>
+                <div className="font-bold text-stone-900 underline uppercase">—</div>
+                <div className="text-[10px] text-stone-500">Municipal reviewer</div>
               </div>
             </div>
 
@@ -1808,13 +1802,19 @@ export const BarangayBiosecurity: React.FC<BarangayBiosecurityProps> = ({
             <div className="flex items-center justify-end gap-2 pt-4 border-t border-stone-100">
               <button
                 onClick={() => setPrintingAudit(null)}
-                className="px-4 py-2 rounded-xl border border-stone-300 text-stone-700 text-xs font-bold hover:bg-stone-50 cursor-pointer"
+                className="no-print px-4 py-2 rounded-xl border border-stone-300 text-stone-700 text-xs font-bold hover:bg-stone-50 cursor-pointer"
               >
                 Close
               </button>
               <button
-                onClick={() => window.print()}
-                className="px-5 py-2 rounded-xl bg-emerald-800 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm"
+                onClick={() => {
+                  try {
+                    printDocument('biosecurity-certificate');
+                  } catch (error) {
+                    setPrintNotice(error instanceof Error ? error.message : 'Unable to open the browser print dialog.');
+                  }
+                }}
+                className="no-print px-5 py-2 rounded-xl bg-emerald-800 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>Print Document</span>

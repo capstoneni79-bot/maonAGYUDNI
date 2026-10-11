@@ -61,6 +61,7 @@ import {
   getFieldValue,
   matchRecordSearch,
 } from '../../utils/registryFieldUtils';
+import { printDocument } from '../../utils/printUtils';
 import {
   calculateSwineAge,
   formatDobDisplay,
@@ -349,16 +350,18 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   const [printSelectedColumnIds, setPrintSelectedColumnIds] = useState<Record<string, boolean>>({});
   const [printValidationError, setPrintValidationError] = useState<string | null>(null);
   const [activePrintColumns, setActivePrintColumns] = useState<ActiveFieldItem[]>([]);
+  const [printRecordScope, setPrintRecordScope] = useState<'all' | 'selected'>('all');
   const [showImportModal, setShowImportModal] = useState<boolean>(false);
   const [importSuccessMsg, setImportSuccessMsg] = useState<string>('');
 
   const triggerScopedPrint = (target: 'swine-record' | 'registry-report') => {
-    const clearPrintTarget = () => {
-      delete document.body.dataset.printTarget;
-    };
-    document.body.dataset.printTarget = target;
-    window.addEventListener('afterprint', clearPrintTarget, { once: true });
-    window.print();
+    try {
+      printDocument(target);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to open the browser print dialog.';
+      setPrintValidationError(message);
+      window.alert(message);
+    }
   };
 
   // Logo customization for Official Print Report
@@ -722,6 +725,14 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     });
     return list;
   }, [filtered, sortFieldKey, sortOrder, activeFields]);
+
+  const selectedFilteredRecords = useMemo(
+    () => sortedRecords.filter(record => selectedRecordIds.has(record.id)),
+    [selectedRecordIds, sortedRecords]
+  );
+  const registryPrintRecords = printRecordScope === 'selected'
+    ? selectedFilteredRecords
+    : sortedRecords;
 
   const farmerGroups = useMemo(() => {
     const groups = new Map<string, { farmer: FarmerSelection; records: EnhancedSwineRecord[] }>();
@@ -3686,7 +3697,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 <div>
                   <p className="text-stone-500 mb-8">Prepared & Inspected by:</p>
                   <p className="font-bold border-t border-stone-400 pt-1 text-stone-900 uppercase">
-                    {currentUser?.name || 'Authorized DA Inspector'}
+                    {currentUser?.name || '—'}
                   </p>
                   <p className="text-[10px] text-stone-500">Barangay Agricultural Extension Worker</p>
                 </div>
@@ -3746,7 +3757,15 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => triggerScopedPrint('registry-report')}
+                  onClick={() => {
+                    if (registryPrintRecords.length === 0) {
+                      setPrintValidationError('No records match this print selection. Select records or change the filters.');
+                      return;
+                    }
+                    setPrintValidationError(null);
+                    triggerScopedPrint('registry-report');
+                  }}
+                  disabled={registryPrintRecords.length === 0}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer shadow-xs"
                 >
                   <Printer className="w-3.5 h-3.5" /> Print Now
@@ -3760,6 +3779,42 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 </button>
               </div>
             </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 bg-stone-50 px-6 py-3 text-xs">
+              <fieldset className="flex flex-wrap items-center gap-4">
+                <legend className="sr-only">Records to print</legend>
+                <label className="inline-flex min-h-11 items-center gap-2 font-semibold text-stone-800">
+                  <input
+                    type="radio"
+                    name="registry-print-scope"
+                    checked={printRecordScope === 'all'}
+                    onChange={() => setPrintRecordScope('all')}
+                  />
+                  All {sortedRecords.length} filtered records
+                </label>
+                <label className={`inline-flex min-h-11 items-center gap-2 font-semibold ${
+                  selectedFilteredRecords.length ? 'text-stone-800' : 'text-stone-400'
+                }`}>
+                  <input
+                    type="radio"
+                    name="registry-print-scope"
+                    checked={printRecordScope === 'selected'}
+                    onChange={() => setPrintRecordScope('selected')}
+                    disabled={selectedFilteredRecords.length === 0}
+                  />
+                  Selected {selectedFilteredRecords.length} filtered records
+                </label>
+              </fieldset>
+              <p className="font-semibold text-stone-700" role="status">
+                Print preview: {registryPrintRecords.length} record{registryPrintRecords.length === 1 ? '' : 's'}
+              </p>
+            </div>
+
+            {printValidationError && (
+              <p role="alert" className="border-b border-rose-200 bg-rose-50 px-6 py-3 text-xs font-semibold text-rose-800">
+                {printValidationError}
+              </p>
+            )}
 
             {/* Expandable Logo Customizer Panel */}
             {showLogoCustomizer && (
@@ -3886,6 +3941,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 </h4>
                 <p className="text-[10px] text-stone-500">
                   Report Generated on: {new Date().toLocaleDateString()} • Hinunangan, Southern Leyte
+                  {' • '}Barangay: {selectedBarangay === 'all' ? 'All authorized barangays' : selectedBarangay}
                 </p>
               </div>
 
@@ -3893,24 +3949,24 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               <div className="grid grid-cols-4 gap-3 text-center">
                 <div className="bg-stone-50 p-2.5 rounded-xl border border-stone-200">
                   <span className="text-stone-500 text-[10px] block">Total Listed Swine</span>
-                  <span className="font-bold text-base text-stone-900">{sortedRecords.length} Heads</span>
+                  <span className="font-bold text-base text-stone-900">{registryPrintRecords.length} Heads</span>
                 </div>
                 <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200">
                   <span className="text-amber-700 text-[10px] block">Ready for Market</span>
                   <span className="font-bold text-base text-amber-900">
-                    {sortedRecords.filter(s => s.computedIsReady).length} Heads
+                    {registryPrintRecords.filter(s => s.computedIsReady).length} Heads
                   </span>
                 </div>
                 <div className="bg-red-50 p-2.5 rounded-xl border border-red-200">
                   <span className="text-red-700 text-[10px] block">Biosecurity Alerts</span>
                   <span className="font-bold text-base text-red-900">
-                    {sortedRecords.filter(s => s.computedHasWarning).length} Boars
+                    {registryPrintRecords.filter(s => s.computedHasWarning).length} Boars
                   </span>
                 </div>
                 <div className="bg-stone-50 p-2.5 rounded-xl border border-stone-200">
                   <span className="text-stone-500 text-[10px] block">Est. Market Value</span>
                   <span className="font-bold text-base text-emerald-800">
-                    ₱{sortedRecords.reduce((acc, s) => acc + (s.estimatedPricePhp || 0), 0).toLocaleString()}
+                    ₱{registryPrintRecords.reduce((acc, s) => acc + (Number(s.estimatedPricePhp) || 0), 0).toLocaleString()}
                   </span>
                 </div>
               </div>
@@ -3922,22 +3978,19 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                     <tr>
                       <th className="p-1.5 border border-stone-300 text-center w-8">#</th>
                       <th className="p-1.5 border border-stone-300">Pig ID Tag</th>
-                      <th className="p-1.5 border border-stone-300">Farmer</th>
-                      <th className="p-1.5 border border-stone-300">Barangay</th>
-                      <th className="p-1.5 border border-stone-300">Breed</th>
-                      <th className="p-1.5 border border-stone-300">Sex</th>
-                      <th className="p-1.5 border border-stone-300">Date of Birth</th>
-                      <th className="p-1.5 border border-stone-300">Current Age</th>
-                      <th className="p-1.5 border border-stone-300">Est. Weight</th>
-                      <th className="p-1.5 border border-stone-300">Actual Weight</th>
-                      <th className="p-1.5 border border-stone-300">Type</th>
-                      <th className="p-1.5 border border-stone-300">Farm Scale</th>
-                      <th className="p-1.5 border border-stone-300">ASF Zone</th>
-                      <th className="p-1.5 border border-stone-300">Status</th>
+                      {activePrintColumns.map(item => (
+                        <th key={item.field.id} className="p-1.5 border border-stone-300">{item.field.label}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-200">
-                    {sortedRecords.map((s, idx) => (
+                    {registryPrintRecords.length === 0 ? (
+                      <tr>
+                        <td colSpan={activePrintColumns.length + 2} className="p-6 text-center text-stone-600">
+                          No records match the selected print options.
+                        </td>
+                      </tr>
+                    ) : registryPrintRecords.map((s, idx) => (
                       <tr key={s.id} className="hover:bg-stone-50">
                         <td className="p-1.5 border border-stone-300 text-center font-mono text-stone-500">
                           {idx + 1}
@@ -3945,42 +3998,11 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                         <td className="p-1.5 border border-stone-300 font-mono font-bold text-emerald-950">
                           {s.computedPigId}
                         </td>
-                        <td className="p-1.5 border border-stone-300 font-bold text-stone-900">
-                          {s.farmerName}
-                        </td>
-                        <td className="p-1.5 border border-stone-300">
-                          {s.barangay}
-                        </td>
-                        <td className="p-1.5 border border-stone-300">
-                          {s.breed || 'Standard'}
-                        </td>
-                        <td className="p-1.5 border border-stone-300 uppercase">
-                          {s.gender ? s.gender.toUpperCase() : (s.sex ? s.sex.toUpperCase() : '—')}
-                        </td>
-                        <td className="p-1.5 border border-stone-300 font-mono text-[9px]">
-                          {s.computedDobFormatted || '—'}
-                        </td>
-                        <td className="p-1.5 border border-stone-300 font-bold text-emerald-950">
-                          {s.computedAgeLabel}
-                        </td>
-                        <td className="p-1.5 border border-stone-300 font-semibold text-emerald-900">
-                          {s.computedEstimatedWeight}
-                        </td>
-                        <td className="p-1.5 border border-stone-300">
-                          {s.computedActualWeight ? `${s.computedActualWeight} kg` : '—'}
-                        </td>
-                        <td className="p-1.5 border border-stone-300 uppercase">
-                          {s.swineType}
-                        </td>
-                        <td className="p-1.5 border border-stone-300">
-                          {s.computedFarmScale}
-                        </td>
-                        <td className="p-1.5 border border-stone-300 font-bold">
-                          {s.computedAsfZone}
-                        </td>
-                        <td className="p-1.5 border border-stone-300 font-bold">
-                          {s.computedIsReady ? 'READY TO SELL' : s.status.toUpperCase()}
-                        </td>
+                        {activePrintColumns.map(item => (
+                          <td key={item.field.id} className="break-words p-1.5 border border-stone-300">
+                            {formatFieldValue(getFieldValue(s, item.field), item.field)}
+                          </td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>

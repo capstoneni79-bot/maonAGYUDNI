@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
   FileText,
   Plus,
@@ -33,18 +33,59 @@ import {
   CertificateTemplate,
   CertificateWatermarkConfig,
 } from '../../types';
+import { printDocument } from '../../utils/printUtils';
 import { HINUNANGAN_BARANGAYS } from '../../data/barangays';
-import { DOCUMENT_TYPE_OPTIONS, INITIAL_CERTIFICATE_TEMPLATES } from '../../data/certificateTemplates';
+import { DOCUMENT_TYPE_OPTIONS } from '../../data/certificateTemplates';
 import { AVAILABLE_PLACEHOLDERS } from '../../utils/templateReplacer';
 import { DynamicCertificateView } from './DynamicCertificateView';
 import { mediaApi, moduleDataApi } from '../../services/api';
+import { filterCertificateTemplates } from '../../utils/certificateTemplateFilters';
 
 interface CertificateTemplateEditorProps {
   initialTemplate?: CertificateTemplate;
-  onSave: (savedTemplate: CertificateTemplate) => void;
+  onSave: (savedTemplate: CertificateTemplate) => Promise<void>;
   onClose?: () => void;
   isModal?: boolean;
 }
+
+const createTemplateId = () =>
+  `tpl-custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const createBlankTemplate = (): CertificateTemplate => {
+  const now = new Date().toISOString();
+  return {
+    id: createTemplateId(),
+    name: 'New certificate template',
+    barangay: 'All',
+    documentType: '',
+    documentTitle: '',
+    titleFont: 'serif_bold',
+    language: 'english',
+    pageSize: 'Folio',
+    orientation: 'portrait',
+    header: {
+      countryText: 'Republic of the Philippines',
+      provinceText: 'PROVINCE OF SOUTHERN LEYTE',
+      municipalityText: 'Municipality of Hinunangan',
+      barangayText: '',
+      borderStyle: 'single',
+    },
+    logos: [],
+    watermark: {
+      enabled: false,
+      type: 'municipality',
+      opacity: 0.12,
+      position: 'center',
+      size: 'large',
+    },
+    bodyTemplate: '',
+    signatories: [],
+    receipt: { showReceiptBox: false, formatStyle: 'standard' },
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+};
 
 export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps> = ({
   initialTemplate,
@@ -52,24 +93,37 @@ export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps>
   onClose,
   isModal = false,
 }) => {
-  // Load templates from storage for search & selection
+  // Load saved templates from the shared database for search and selection.
   const [availableTemplates, setAvailableTemplates] = useState<CertificateTemplate[]>(() => {
     return [];
   });
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(true);
+  const [templateLoadError, setTemplateLoadError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Selected template state
-  const defaultTpl = initialTemplate || availableTemplates[0] || INITIAL_CERTIFICATE_TEMPLATES[0];
+  const defaultTpl = initialTemplate || createBlankTemplate();
   const [template, setTemplate] = useState<CertificateTemplate>(() => JSON.parse(JSON.stringify(defaultTpl)));
   const [activeSection, setActiveSection] = useState<
     'info' | 'header_logos' | 'body' | 'signatories' | 'watermark' | 'receipt'
   >('header_logos');
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
-  useEffect(() => {
-    moduleDataApi.get<CertificateTemplate[]>('certificate_templates')
-      .then(setAvailableTemplates)
-      .catch(error => setSaveNotice(error instanceof Error ? error.message : 'Unable to load report templates from database.'));
+  const loadTemplates = useCallback(async () => {
+    setIsLoadingTemplates(true);
+    try {
+      setAvailableTemplates(await moduleDataApi.get<CertificateTemplate[]>('certificate_templates'));
+      setTemplateLoadError(null);
+    } catch (error) {
+      setTemplateLoadError(error instanceof Error ? error.message : 'Unable to load report templates from database.');
+    } finally {
+      setIsLoadingTemplates(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadTemplates();
+  }, [loadTemplates]);
 
   // Search & Filters for Template Switcher
   const [searchQuery, setSearchQuery] = useState('');
@@ -84,65 +138,48 @@ export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps>
   // New Logo Form State
   const [newLogoType, setNewLogoType] = useState<CertificateLogoType>('barangay');
   const [newLogoPosition, setNewLogoPosition] = useState<CertificateLogoPosition>('left');
-  const [newLogoBarangay, setNewLogoBarangay] = useState<string>('Nava');
+  const [newLogoBarangay, setNewLogoBarangay] = useState<string>(
+    template.barangay === 'All' ? '' : template.barangay
+  );
   const [newLogoSize, setNewLogoSize] = useState<number>(70);
   const [newLogoCustomUrl, setNewLogoCustomUrl] = useState<string>('');
 
   const printRef = useRef<HTMLDivElement>(null);
 
-  // Sample data context for live preview rendering
+  // Placeholder-only context prevents example data from being mistaken for an issued document.
   const sampleDataContext = {
-    resident_name: 'HON. JUAN DELA CRUZ',
-    farmer_name: 'HON. JUAN DELA CRUZ',
-    barangay: template.barangay === 'All' ? 'Nava' : template.barangay,
+    resident_name: '—',
+    farmer_name: '—',
+    barangay: template.barangay === 'All' ? '—' : template.barangay,
     municipality: 'Hinunangan',
     province: 'Southern Leyte',
-    number_of_pigs: '7',
-    heads: '7',
-    buyer_name: 'JOVELYN PADOLLO / JJR HOG TRADING',
-    buyer_address: 'Barangay Colawen, Pastrana, Leyte',
-    destination: 'Pastrana, Leyte',
-    purpose: 'commercial livestock trade and legal transit clearance',
-    date_issued: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-    or_number: template.receipt?.orNumber || '1675127',
-    price_per_kilo: '₱170.00 / kilo liveweight',
-    amount_paid: template.receipt?.amountPaid || '100.00',
-    animal_type: 'market hogs (Landrace/Large White Cross)',
-    association_name: 'NUEVA ESPERANZA SLP ASS.',
-    farmer_age_civil_status: 'hingkod ang panu-igon',
-    swine_age: 'TULO ( 3 ) ka Buwan',
-    female_count: '4',
-    male_count: '3',
-    color_description: 'Assorted (White / Landrace Cross)',
-    issued_at: `Barangay ${template.barangay === 'All' ? 'Nava' : template.barangay}, Hinunangan, Southern Leyte`,
+    number_of_pigs: '—',
+    heads: '—',
+    buyer_name: '—',
+    buyer_address: '—',
+    destination: '—',
+    purpose: '—',
+    date_issued: '—',
+    or_number: '—',
+    price_per_kilo: '—',
+    amount_paid: '—',
+    animal_type: '—',
+    association_name: '—',
+    farmer_age_civil_status: '—',
+    swine_age: '—',
+    female_count: '—',
+    male_count: '—',
+    color_description: '—',
+    issued_at: template.barangay === 'All' ? '—' : `Barangay ${template.barangay}, Hinunangan, Southern Leyte`,
   };
 
   // Filtered list of templates
   const filteredTemplates = useMemo(() => {
-    return availableTemplates.filter(tpl => {
-      const q = searchQuery.toLowerCase().trim();
-      const matchesSearch =
-        !q ||
-        tpl.name.toLowerCase().includes(q) ||
-        tpl.barangay.toLowerCase().includes(q) ||
-        tpl.documentType.toLowerCase().includes(q) ||
-        tpl.language.toLowerCase().includes(q) ||
-        tpl.documentTitle.toLowerCase().includes(q);
-
-      const matchesBarangay =
-        selectedBarangayFilter === 'all' ||
-        tpl.barangay.toLowerCase() === selectedBarangayFilter.toLowerCase() ||
-        tpl.barangay === 'All';
-
-      const matchesDocType =
-        selectedDocTypeFilter === 'all' ||
-        tpl.documentType.toLowerCase() === selectedDocTypeFilter.toLowerCase();
-
-      const matchesLanguage =
-        selectedLanguageFilter === 'all' ||
-        tpl.language.toLowerCase() === selectedLanguageFilter.toLowerCase();
-
-      return matchesSearch && matchesBarangay && matchesDocType && matchesLanguage;
+    return filterCertificateTemplates(availableTemplates, {
+      search: searchQuery,
+      barangay: selectedBarangayFilter === 'all' ? '' : selectedBarangayFilter,
+      documentType: selectedDocTypeFilter === 'all' ? '' : selectedDocTypeFilter,
+      language: selectedLanguageFilter === 'all' ? '' : selectedLanguageFilter,
     });
   }, [availableTemplates, searchQuery, selectedBarangayFilter, selectedDocTypeFilter, selectedLanguageFilter]);
 
@@ -169,9 +206,9 @@ export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps>
         countryText: 'Republic of the Philippines',
         provinceText: 'PROVINCE OF SOUTHERN LEYTE',
         municipalityText: 'Municipality of Hinunangan',
-        barangayText: `BARANGAY ${(template.barangay === 'All' ? 'NAVA' : template.barangay).toUpperCase()}`,
+        barangayText: `BARANGAY ${(template.barangay === 'All' ? '—' : template.barangay).toUpperCase()}`,
         officeTitle: 'OFFICE OF THE PUNONG BARANGAY',
-        contactEmail: 'agri.hinunangan@gmail.com',
+        contactEmail: '',
         borderStyle: 'single',
       },
       logos: [
@@ -179,7 +216,7 @@ export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps>
           id: `logo-1-${Date.now()}`,
           type: 'barangay',
           position: 'left',
-          barangayName: template.barangay === 'All' ? 'NAVA' : template.barangay,
+          barangayName: template.barangay === 'All' ? '' : template.barangay,
           widthPx: 70,
           heightPx: 70,
           order: 1,
@@ -214,7 +251,7 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
       signatories: [
         {
           id: `sig-1-${Date.now()}`,
-          name: 'HON. VICENTE T. MADRONERO JR.',
+          name: '',
           position: 'PUNONG BARANGAY',
           prefix: '',
           showSignatureImage: false,
@@ -226,7 +263,7 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
         },
         {
           id: `sig-2-${Date.now()}`,
-          name: 'RANDY N. BURLAZA, BBO',
+          name: '',
           position: 'BARANGAY BIOSECURITY OFFICER',
           prefix: '',
           showSignatureImage: false,
@@ -240,8 +277,8 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
       receipt: {
         showReceiptBox: true,
         formatStyle: 'nava',
-        orNumber: '1675127',
-        amountPaid: '100.00',
+        orNumber: '',
+        amountPaid: '',
       },
       isActive: true,
       createdAt: new Date().toISOString(),
@@ -431,20 +468,36 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
   };
 
   // Save template
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (isSaving) return;
+    if (!template.name.trim()) {
+      setSaveNotice('Enter a template name before saving.');
+      return;
+    }
+    setIsSaving(true);
     const updated = {
       ...template,
       updatedAt: new Date().toISOString(),
     };
-    setAvailableTemplates(previous => [updated, ...previous.filter(item => item.id !== updated.id)]);
-    onSave(updated);
-    setSaveNotice('Template saved successfully!');
-    setTimeout(() => setSaveNotice(null), 3000);
+    try {
+      await onSave(updated);
+      setAvailableTemplates(previous => [updated, ...previous.filter(item => item.id !== updated.id)]);
+      setSaveNotice('Template saved successfully.');
+      setTimeout(() => setSaveNotice(null), 3000);
+    } catch (error) {
+      setSaveNotice(error instanceof Error ? error.message : 'Unable to save template to the database.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Print document
   const handlePrint = () => {
-    window.print();
+    try {
+      printDocument('certificate-template-preview');
+    } catch (error) {
+      setSaveNotice(error instanceof Error ? error.message : 'Unable to open the browser print dialog.');
+    }
   };
 
   return (
@@ -475,11 +528,12 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={handleSave}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+            onClick={() => void handleSave()}
+            disabled={isSaving}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer disabled:cursor-wait disabled:opacity-60"
           >
             <Save className="w-4 h-4" />
-            <span>Save Template</span>
+            <span>{isSaving ? 'Saving…' : 'Save Template'}</span>
           </button>
 
           <button
@@ -570,6 +624,21 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
               <option value="filipino">Filipino</option>
             </select>
 
+            {(searchQuery || selectedBarangayFilter !== 'all' || selectedDocTypeFilter !== 'all' || selectedLanguageFilter !== 'all') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setSelectedBarangayFilter('all');
+                  setSelectedDocTypeFilter('all');
+                  setSelectedLanguageFilter('all');
+                }}
+                className="px-3 py-2 text-xs font-bold text-slate-200 hover:text-white"
+              >
+                Clear filters
+              </button>
+            )}
+
             {/* Create New Template Button */}
             <button
               type="button"
@@ -583,6 +652,26 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
         </div>
 
         {/* Template Quick Selection Chips */}
+        {isLoadingTemplates && (
+          <p role="status" className="pt-1 text-xs text-slate-300">Loading saved templates…</p>
+        )}
+        {!isLoadingTemplates && templateLoadError && (
+          <div role="alert" className="flex flex-wrap items-center gap-3 pt-1 text-xs text-rose-200">
+            <span>Saved templates could not be loaded: {templateLoadError}</span>
+            <button
+              type="button"
+              onClick={() => void loadTemplates()}
+              className="min-h-10 rounded-lg border border-rose-300/60 px-3 font-bold hover:bg-rose-900/40"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {!isLoadingTemplates && !templateLoadError && availableTemplates.length === 0 && (
+          <p role="status" className="pt-1 text-xs text-amber-200">
+            No saved templates are available yet. Save this draft to create the first template.
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-1.5 pt-1 overflow-x-auto">
           <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider shrink-0 mr-1">
             TEMPLATES ({filteredTemplates.length}):
@@ -601,7 +690,7 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
               <span>{tpl.name}</span>
             </button>
           ))}
-          {filteredTemplates.length === 0 && (
+          {availableTemplates.length > 0 && filteredTemplates.length === 0 && (
             <span className="text-xs text-slate-400 italic">No templates matching &ldquo;{searchQuery}&rdquo;</span>
           )}
         </div>
@@ -1546,6 +1635,7 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
               containerRef={printRef}
               template={template}
               data={sampleDataContext}
+              previewOnly
             />
           </div>
         </div>

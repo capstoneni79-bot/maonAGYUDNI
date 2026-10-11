@@ -13,6 +13,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { ASFRegulatoryDocument, LegalSourceAttachment } from '../../types';
+import { printDocument } from '../../utils/printUtils';
 
 interface LegalDocumentOriginalViewerModalProps {
   isOpen: boolean;
@@ -49,7 +50,11 @@ export const LegalDocumentOriginalViewerModal: React.FC<LegalDocumentOriginalVie
   ) || [];
 
   const handlePrint = () => {
-    window.print();
+    try {
+      printDocument('legal-source');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Unable to open the browser print dialog.');
+    }
   };
 
   const handleDownload = () => {
@@ -70,10 +75,10 @@ export const LegalDocumentOriginalViewerModal: React.FC<LegalDocumentOriginalVie
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-4 backdrop-blur-md">
-      <div className="flex h-[92vh] w-full max-w-6xl flex-col rounded-2xl bg-white shadow-2xl overflow-hidden border border-slate-200">
+      <div data-print-document="legal-source" className="flex h-[92vh] w-full max-w-6xl flex-col rounded-2xl bg-white shadow-2xl overflow-hidden border border-slate-200">
         
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-900 px-6 py-3.5 text-white">
+        <div className="no-print flex items-center justify-between border-b border-slate-200 bg-slate-900 px-6 py-3.5 text-white">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
               <FileText className="h-5 w-5" />
@@ -148,7 +153,7 @@ export const LegalDocumentOriginalViewerModal: React.FC<LegalDocumentOriginalVie
         </div>
 
         {/* Sub-bar: Pagination & Zoom */}
-        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-2">
+        <div className="no-print flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-2">
           <div className="flex items-center gap-2">
             <button
               disabled={currentPage <= 1}

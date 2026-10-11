@@ -1,6 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import {
   Printer,
   FileText,
@@ -72,6 +70,9 @@ import { CreateCertificateModal } from './CreateCertificateModal';
 import { CertificateTemplateEditor } from './CertificateTemplateEditor';
 import { TransmittalLetterManager } from './TransmittalLetterManager';
 import { calculateSwineAge, formatDobDisplay } from '../../utils/swineRegistryLogic';
+import { downloadElementAsPdf } from '../../utils/pdfUtils';
+import { printDocument } from '../../utils/printUtils';
+import { filterCertificateTemplates } from '../../utils/certificateTemplateFilters';
 
 interface CertificateManagerProps {
   swineList: SwineRecord[];
@@ -169,7 +170,7 @@ Ante-mortem clearance has been established, fees have been recorded, and the car
 // Helper to parse Full Name into Family Name, Given Name, Middle Name
 function parseFullName(fullName: string): { familyName: string; givenName: string; middleName: string } {
   if (!fullName || !fullName.trim()) {
-    return { familyName: 'DELA CRUZ', givenName: 'JUAN', middleName: 'M.' };
+    return { familyName: '', givenName: '', middleName: '' };
   }
   const clean = fullName.trim();
   if (clean.includes(',')) {
@@ -179,7 +180,7 @@ function parseFullName(fullName: string): { familyName: string; givenName: strin
     const given = restParts.join(' ') || (rest || '');
     return {
       familyName: last.toUpperCase(),
-      givenName: (given || 'JUAN').toUpperCase(),
+      givenName: given.toUpperCase(),
       middleName: (middle || '-').toUpperCase(),
     };
   }
@@ -201,21 +202,17 @@ function parseFullName(fullName: string): { familyName: string; givenName: strin
   };
 }
 
-// Generate consistent synthetic RSBSA and birthdates for demonstration/display
-function getFormattedRsbsaId(swine: SwineRecord, index: number): string {
-  if (swine.rsbsaId && swine.rsbsaId.trim()) return swine.rsbsaId;
-  const seq = String(index + 1).padStart(6, '0');
-  return `08-64-16-002-${seq}`;
+function getFormattedRsbsaId(swine: SwineRecord): string {
+  return swine.rsbsaId?.trim() || '—';
 }
 
-function getFarmerBirthday(swine: SwineRecord, index: number): string {
-  const years = [1965, 1972, 1980, 1985, 1990, 1978, 1992, 1968, 1983, 1995];
-  const months = ['01', '03', '05', '06', '08', '09', '11', '12'];
-  const days = ['05', '12', '18', '21', '25', '28'];
-  const yr = years[index % years.length];
-  const mo = months[index % months.length];
-  const dy = days[index % days.length];
-  return `${mo}/${dy}/${yr}`;
+function getFarmerBirthday(swine: SwineRecord): string {
+  const savedBirthday = swine.customFields?.farmerBirthDate || swine.customFields?.farmer_birth_date;
+  return typeof savedBirthday === 'string' && savedBirthday ? formatDobDisplay(savedBirthday) : '—';
+}
+
+function toCsvCell(value: unknown): string {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`;
 }
 
 export type DocumentType =
@@ -271,7 +268,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
     return 'all';
   });
   const [reportCertTypeFilter, setReportCertTypeFilter] = useState<string>('all');
-  const [reportDateFrom, setReportDateFrom] = useState<string>('2026-01-01');
+  const [reportDateFrom, setReportDateFrom] = useState<string>(`${new Date().getFullYear()}-01-01`);
   const [reportDateTo, setReportDateTo] = useState<string>(new Date().toISOString().substring(0, 10));
   const [isExportingReportPdf, setIsExportingReportPdf] = useState(false);
   const officialReportPrintRef = useRef<HTMLDivElement>(null);
@@ -303,12 +300,12 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
 
   // Signatory & Official Customization Modal State
   const [isSignatoryModalOpen, setIsSignatoryModalOpen] = useState(false);
-  const [preparedByName, setPreparedByName] = useState('RANDY N. BURLAZA, BBO');
-  const [preparedByTitle, setPreparedByTitle] = useState('Barangay Biosecurity Officer');
-  const [verifiedByName, setVerifiedByName] = useState('ENGR. ARNALDO M. VALDEZ');
-  const [verifiedByTitle, setVerifiedByTitle] = useState('Municipal Agricultural Officer (MAO)');
-  const [approvedByName, setApprovedByName] = useState('HON. REYNALDO C. FONTENILLA');
-  const [approvedByTitle, setApprovedByTitle] = useState('Municipal Mayor, Hinunangan');
+  const [preparedByName, setPreparedByName] = useState('');
+  const [preparedByTitle, setPreparedByTitle] = useState('');
+  const [verifiedByName, setVerifiedByName] = useState('');
+  const [verifiedByTitle, setVerifiedByTitle] = useState('');
+  const [approvedByName, setApprovedByName] = useState('');
+  const [approvedByTitle, setApprovedByTitle] = useState('');
 
   // Transmittal Memorandum Custom Fields
   const [transmittalRefNo, setTransmittalRefNo] = useState('DA-MAO-HN-2026-TR-0982');
@@ -337,26 +334,31 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
   // Dynamic Certificate Templates State
   const [templates, setTemplates] = useState<CertificateTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('tpl-nava-official');
+  const [archivedTemplateOverride, setArchivedTemplateOverride] = useState<CertificateTemplate | null>(null);
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(true);
   const [templateLoadError, setTemplateLoadError] = useState<string | null>(null);
+  const loadTemplates = useCallback(async () => {
+    setIsLoadingTemplates(true);
+    try {
+      const savedTemplates = await moduleDataApi.get<CertificateTemplate[]>('certificate_templates');
+      setTemplates(savedTemplates);
+      setTemplateLoadError(null);
+      setSelectedTemplateId(current => savedTemplates.some(template => template.id === current)
+        ? current
+        : savedTemplates[0]?.id || '');
+    } catch (error) {
+      console.error('Unable to load report templates from database:', error);
+      setTemplateLoadError(error instanceof Error ? error.message : 'Unable to load templates from the database.');
+    } finally {
+      setIsLoadingTemplates(false);
+    }
+  }, []);
   const [isTemplateEditorOpen, setIsTemplateEditorOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<CertificateTemplate | undefined>(undefined);
 
   useEffect(() => {
-    moduleDataApi.get<CertificateTemplate[]>('certificate_templates')
-      .then(savedTemplates => {
-        setTemplates(savedTemplates);
-        setTemplateLoadError(null);
-        setSelectedTemplateId(current => savedTemplates.some(template => template.id === current)
-          ? current
-          : savedTemplates[0]?.id || '');
-      })
-      .catch(error => {
-        console.error('Unable to load report templates from database:', error);
-        setTemplateLoadError(error instanceof Error ? error.message : 'Unable to load templates from the database.');
-      })
-      .finally(() => setIsLoadingTemplates(false));
-  }, []);
+    void loadTemplates();
+  }, [loadTemplates]);
 
   // Template Search & Filters in Manager
   const [tplSearchQuery, setTplSearchQuery] = useState('');
@@ -365,29 +367,11 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
   const [tplLanguageFilter, setTplLanguageFilter] = useState('all');
 
   const filteredTemplates = useMemo(() => {
-    return templates.filter(tpl => {
-      const q = tplSearchQuery.toLowerCase().trim();
-      const matchesSearch =
-        !q ||
-        tpl.name.toLowerCase().includes(q) ||
-        tpl.barangay.toLowerCase().includes(q) ||
-        tpl.documentType.toLowerCase().includes(q) ||
-        tpl.language.toLowerCase().includes(q);
-
-      const matchesBarangay =
-        tplBarangayFilter === 'all' ||
-        tpl.barangay.toLowerCase() === tplBarangayFilter.toLowerCase() ||
-        tpl.barangay === 'All';
-
-      const matchesDocType =
-        tplDocTypeFilter === 'all' ||
-        tpl.documentType.toLowerCase() === tplDocTypeFilter.toLowerCase();
-
-      const matchesLanguage =
-        tplLanguageFilter === 'all' ||
-        tpl.language.toLowerCase() === tplLanguageFilter.toLowerCase();
-
-      return matchesSearch && matchesBarangay && matchesDocType && matchesLanguage;
+    return filterCertificateTemplates(templates, {
+      search: tplSearchQuery,
+      barangay: tplBarangayFilter === 'all' ? '' : tplBarangayFilter,
+      documentType: tplDocTypeFilter === 'all' ? '' : tplDocTypeFilter,
+      language: tplLanguageFilter === 'all' ? '' : tplLanguageFilter,
     });
   }, [templates, tplSearchQuery, tplBarangayFilter, tplDocTypeFilter, tplLanguageFilter]);
 
@@ -400,8 +384,9 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
   }, [filteredTemplates, selectedTemplateId, templates]);
 
   const activeTemplate = useMemo(() => {
-    return templates.find(t => t.id === selectedTemplateId) || templates[0];
-  }, [templates, selectedTemplateId]);
+    if (archivedTemplateOverride?.id === selectedTemplateId) return archivedTemplateOverride;
+    return templates.find(t => t.id === selectedTemplateId);
+  }, [archivedTemplateOverride, templates, selectedTemplateId]);
 
   // Create Certificate Modal State
   const [isCreateCertModalOpen, setIsCreateCertModalOpen] = useState(false);
@@ -412,29 +397,20 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
     setIsCreateCertModalOpen(true);
   };
 
-  // Active Certificate View Data (Matching the 3 provided photos)
+  // Empty preview data avoids presenting example values as an official certificate.
   const [activeCertData, setActiveCertData] = useState<CertificateData>({
     templateStyle: 'nava',
-    barangay: 'Nava',
-    farmerName: selectedSwineInitial?.farmerName || 'EDNA TOMBOC',
-    associationName: 'NUEVA ESPERANZA SLP ASS.',
-    farmerAgeCivilStatus: 'hingkod ang panu-igon',
-    buyerName: 'JOVELYN PADOLLO / JJR HOG TRADING',
-    destination: 'Barangay Colawen, Pastrana, Leyte',
-    numberOfHeads: 7,
-    swineAge: 'TULO ( 3 ) ka Buwan',
-    femaleCount: '12 ka Bajie',
-    maleCount: '13 ka Buok',
-    colorDescription: 'Assorted (White / Landrace)',
-    priceDescription: 'price ₱170.00 per kilo liveweight',
-    orNumber: '1675127',
-    amountPaid: '100.00',
+    barangay: selectedSwineInitial?.barangay || '',
+    farmerName: selectedSwineInitial?.farmerName || '',
+    buyerName: '',
+    destination: '',
+    numberOfHeads: 0,
+    orNumber: '',
+    amountPaid: '',
     issueDate: new Date().toISOString().substring(0, 10),
-    issuedAt: 'Barangay Nava, Hinunangan, Southern Leyte',
-    punongBarangay: 'HON. VICENTE T. MADRONERO JR.',
-    punongBarangayTitle: 'Punong Barangay',
-    bboName: 'RANDY N. BURLAZA, BBO',
-    bboTitle: 'Barangay Biosecurity Officer',
+    issuedAt: '',
+    punongBarangay: '',
+    bboName: '',
   });
 
   // Issued Certificates Archive
@@ -489,11 +465,31 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
 
   // Filtered swine dataset based on barangay scope
   const filteredSwineList = useMemo(() => {
+    if (!isUserAdmin) {
+      if (!userAssignedBarangay) return [];
+      return swineList.filter(
+        swine => (swine.barangay || '').toLowerCase() === userAssignedBarangay.toLowerCase()
+      );
+    }
     if (selectedBarangayScope === 'all') return swineList;
     return swineList.filter(
       s => (s.barangay || '').toLowerCase() === selectedBarangayScope.toLowerCase()
     );
-  }, [swineList, selectedBarangayScope]);
+  }, [isUserAdmin, swineList, selectedBarangayScope, userAssignedBarangay]);
+
+  const biosecurityReportBarangays = useMemo(() => {
+    if (!isUserAdmin) {
+      return HINUNANGAN_BARANGAYS.filter(
+        barangay => barangay.name.toLowerCase() === userAssignedBarangay.toLowerCase()
+      );
+    }
+    if (selectedBarangayScope !== 'all') {
+      return HINUNANGAN_BARANGAYS.filter(
+        barangay => barangay.name.toLowerCase() === selectedBarangayScope.toLowerCase()
+      );
+    }
+    return HINUNANGAN_BARANGAYS;
+  }, [isUserAdmin, selectedBarangayScope, userAssignedBarangay]);
 
   // Aggregate Stats
   const totalRaisersCount = useMemo(() => {
@@ -506,13 +502,11 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
   }, [filteredSwineList]);
 
   const totalWeightKg = useMemo(() => {
-    return filteredSwineList.reduce((sum, s) => sum + (Number(s.weightKg) || 85), 0);
+    return filteredSwineList.reduce((sum, s) => sum + (Number(s.weightKg) || 0), 0);
   }, [filteredSwineList]);
 
   const greenZoneCount = useMemo(() => {
-    return filteredSwineList.filter(
-      s => s.healthStatus === 'healthy' || s.biosecurityStatus === 'COMPLIANT'
-    ).length;
+    return filteredSwineList.filter(s => s.biosecurityStatus === 'COMPLIANT').length;
   }, [filteredSwineList]);
 
   // Filtered Archive
@@ -558,118 +552,64 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
 
   // Switch format template (supports dynamic template IDs and legacy styles)
   const handleSelectTemplate = (templateIdOrStyle: string) => {
+    if (!templateIdOrStyle) return;
     const matched = templates.find(
-      t => t.id === templateIdOrStyle || t.id.toLowerCase().includes(templateIdOrStyle.toLowerCase()) || t.barangay.toLowerCase() === templateIdOrStyle.toLowerCase()
+      t => t.id === templateIdOrStyle ||
+        t.id.toLowerCase().includes(templateIdOrStyle.toLowerCase()) ||
+        (t.barangay || '').toLowerCase() === templateIdOrStyle.toLowerCase()
     );
     if (matched) {
+      setArchivedTemplateOverride(null);
       setSelectedTemplateId(matched.id);
       setActiveCertData(prev => ({
         ...prev,
         templateId: matched.id,
         templateStyle: matched.id.includes('esperanza') ? 'nueva_esperanza' : matched.id.includes('tuburan') ? 'tuburan' : matched.id.includes('da') ? 'da_veterinary' : 'nava',
         barangay: matched.barangay,
-        punongBarangay: matched.signatories.find(s => s.position?.toLowerCase().includes('punong') || s.section === 'certified_by')?.name || prev.punongBarangay,
-        bboName: matched.signatories.find(s => s.position?.toLowerCase().includes('bbo') || s.section === 'noted_by')?.name || prev.bboName,
+        punongBarangay: matched.signatories?.find(s => s.position?.toLowerCase().includes('punong') || s.section === 'certified_by')?.name || prev.punongBarangay,
+        bboName: matched.signatories?.find(s => s.position?.toLowerCase().includes('bbo') || s.section === 'noted_by')?.name || prev.bboName,
       }));
     }
   };
 
   // Execute Native Print
   const triggerScopedPrint = (target: string) => {
-    const clearPrintTarget = () => {
-      delete document.body.dataset.printTarget;
-    };
-    document.body.dataset.printTarget = target;
-    window.addEventListener('afterprint', clearPrintTarget, { once: true });
-    window.print();
-  };
-
-  const handleTriggerPrint = () => {
-    triggerScopedPrint('certificate');
-  };
-
-  // Color conversion helper to sanitize OKLCH colors for html2canvas compatibility
-  const sanitizeOklchColors = (text: string): string => {
-    if (!text || typeof text !== 'string' || !text.includes('oklch')) return text;
     try {
-      const tempCanvas = document.createElement('canvas');
-      const ctx = tempCanvas.getContext('2d');
-      if (!ctx) return text.replace(/oklch\([^)]+\)/gi, '#1e293b');
-
-      return text.replace(/oklch\([^)]+\)/gi, match => {
-        try {
-          ctx.fillStyle = '#1e293b';
-          ctx.fillStyle = match;
-          return ctx.fillStyle;
-        } catch {
-          return '#1e293b';
-        }
-      });
-    } catch {
-      return text.replace(/oklch\([^)]+\)/gi, '#1e293b');
+      printDocument(target);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to open the browser print dialog.';
+      setExportNotice(message);
     }
   };
 
-  // Export PDF with html2canvas and jsPDF
+  const handleTriggerPrint = () => {
+    if (!activeTemplate || !activeCertData.certificateNo || !activeCertData.farmerName) {
+      setExportNotice('Only a saved, issued certificate with a matching template can be printed.');
+      return;
+    }
+    triggerScopedPrint('certificate');
+  };
+
   const handleExportPdf = async () => {
-    if (!printableReportRef.current) return;
+    const element = printableReportRef.current;
+    if (!element || !activeTemplate || !activeCertData.certificateNo || !activeCertData.farmerName) {
+      setExportNotice('Only a saved, issued certificate with a matching template can be downloaded.');
+      return;
+    }
     setIsExportingPdf(true);
     setExportNotice('Generating high-resolution official PDF document...');
 
     try {
-      const element = printableReportRef.current;
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-        onclone: clonedDoc => {
-          const styleTags = clonedDoc.querySelectorAll('style');
-          styleTags.forEach(st => {
-            if (st.innerHTML && st.innerHTML.includes('oklch')) {
-              st.innerHTML = sanitizeOklchColors(st.innerHTML);
-            }
-          });
-
-          const allNodes = clonedDoc.querySelectorAll('*');
-          allNodes.forEach(node => {
-            const el = node as HTMLElement;
-            if (el && el.style && el.style.cssText && el.style.cssText.includes('oklch')) {
-              el.style.cssText = sanitizeOklchColors(el.style.cssText);
-            }
-          });
-        },
-      });
-
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
-      const pdf = new jsPDF({
-        orientation: 'p',
-        unit: 'mm',
-        format: 'letter',
-      });
-
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = canvas.width;
-      const imgHeight = canvas.height;
-      const pageMargin = 10;
-      const ratio = Math.min(
-        (pdfWidth - pageMargin * 2) / imgWidth,
-        (pdfHeight - pageMargin * 2) / imgHeight
+      await downloadElementAsPdf(
+        element,
+        `DA-Hinunangan-Barangay-Certification-${activeCertData.barangay}-${Date.now()}.pdf`,
+        { format: 'letter', orientation: 'portrait', marginMm: 10 }
       );
-      const imgX = (pdfWidth - imgWidth * ratio) / 2;
-      const imgY = (pdfHeight - imgHeight * ratio) / 2;
-
-      pdf.addImage(imgData, 'JPEG', imgX, imgY, imgWidth * ratio, imgHeight * ratio);
-      const filename = `DA-Hinunangan-Barangay-Certification-${activeCertData.barangay}-${Date.now()}.pdf`;
-      pdf.save(filename);
 
       setExportNotice('Official Certificate PDF downloaded successfully!');
       setTimeout(() => setExportNotice(null), 3500);
     } catch (err) {
-      console.error('PDF Generation failed:', err);
-      setExportNotice('PDF export notice: Click the green Print button to Save as PDF with exact formatting.');
-      setTimeout(() => setExportNotice(null), 4000);
+      setExportNotice(err instanceof Error ? `Certificate PDF generation failed: ${err.message}` : 'Certificate PDF generation failed.');
     } finally {
       setIsExportingPdf(false);
     }
@@ -699,34 +639,34 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
       'Ear Tag ID',
     ];
 
-    const rows = filteredSwineList.map((s, idx) => {
+    const rows = filteredSwineList.map(s => {
       const { familyName, givenName, middleName } = parseFullName(s.farmerName);
-      const rsbsa = getFormattedRsbsaId(s, idx);
-      const bday = getFarmerBirthday(s, idx);
+      const rsbsa = getFormattedRsbsaId(s);
+      const bday = getFarmerBirthday(s);
       const dobVal = s.birthDate || s.dateOfBirth || s.date_of_birth || s.dob;
       const dobFormatted = formatDobDisplay(dobVal);
       const ageAtReport = calculateSwineAge(dobVal, reportDateTo || undefined).display;
       return [
-        `"${rsbsa}"`,
-        `"${familyName}"`,
-        `"${givenName}"`,
-        `"${middleName}"`,
-        `"${s.barangay || 'Poblacion'}"`,
-        `"Hinunangan"`,
-        `"Southern Leyte"`,
-        `"${bday}"`,
-        `"${dobFormatted}"`,
-        `"${ageAtReport}"`,
-        `"${s.barangay} Central Farm"`,
-        `"${s.latitude || 10.4045}"`,
-        `"${s.longitude || 125.1982}"`,
-        `1`,
-        `"${s.breed || 'Large White'}"`,
-        `"${s.weightKg || 85}"`,
-        `"${s.farmType || 'backyard'}"`,
-        `"${s.healthStatus || 'compliant'}"`,
-        `"${s.earTagNo}"`,
-      ].join(',');
+        rsbsa,
+        familyName,
+        givenName,
+        middleName,
+        s.barangay || '—',
+        'Hinunangan',
+        'Southern Leyte',
+        bday,
+        dobFormatted,
+        ageAtReport,
+        s.farmName || s.farmerAddress || '—',
+        s.latitude,
+        s.longitude,
+        1,
+        s.breed || '—',
+        s.weightKg,
+        s.farmScale || s.farmType || '—',
+        s.biosecurityStatus || '—',
+        s.earTagNo || '—',
+      ].map(toCsvCell).join(',');
     });
 
     const csvContent = [headers.join(','), ...rows].join('\n');
@@ -751,18 +691,23 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
     certificatesApi.getAll().then(setIssuedCertificates).catch(error => {
       setExportNotice(error instanceof Error ? error.message : 'Certificate was saved, but the archive could not be refreshed.');
     });
+    setArchivedTemplateOverride(cert.templateSnapshot || null);
+    if (cert.templateSnapshot) setSelectedTemplateId(cert.templateSnapshot.id);
+    else if (cert.templateId) setSelectedTemplateId(cert.templateId);
     setActiveCertData({
+      certificateNo: cert.certificateNo,
+      templateId: cert.templateSnapshot?.id || cert.templateId,
       templateStyle: 'nava',
-      barangay: cert.farmerBarangay || cert.issuingBarangay || 'Nava',
+      barangay: cert.farmerBarangay || cert.issuingBarangay || '',
       farmerName: cert.farmerName,
-      buyerName: cert.buyerName || 'Buyer',
-      destination: cert.destinationBarangay || cert.destinationMunicipality || 'Pastrana, Leyte',
-      numberOfHeads: cert.numberOfHeads || 1,
-      orNumber: cert.orNumber || '1675127',
-      amountPaid: cert.amountPaid || 100,
+      buyerName: cert.buyerName || '',
+      destination: cert.destinationBarangay || cert.destinationMunicipality || '',
+      numberOfHeads: cert.numberOfHeads ?? 0,
+      orNumber: cert.orNumber || '',
+      amountPaid: cert.amountPaid ?? '',
       issueDate: cert.issueDate,
-      punongBarangay: cert.punongBarangay || cert.authorizedBy || 'HON. VICENTE T. MADRONERO JR.',
-      bboName: cert.bboName || 'RANDY N. BURLAZA, BBO',
+      punongBarangay: cert.punongBarangay || cert.authorizedBy || '',
+      bboName: cert.bboName || '',
     });
     setDocumentType('barangay_certification');
     setExportNotice(`Certificate #${cert.certificateNo} successfully issued and saved!`);
@@ -790,7 +735,14 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
 
   // Official Certificate Report dataset
   const officialReportRecords = useMemo(() => {
-    let list = issuedCertificates;
+    let list = !isUserAdmin
+      ? userAssignedBarangay
+        ? issuedCertificates.filter(c =>
+            (c.farmerBarangay || c.issuingBarangay || '').toLowerCase() === userAssignedBarangay.toLowerCase() ||
+            (!!userBarangayId && c.barangay_id === userBarangayId)
+          )
+        : []
+      : issuedCertificates;
     if (reportBarangayFilter && reportBarangayFilter !== 'all') {
       list = list.filter(
         c =>
@@ -813,10 +765,10 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
       list = list.filter(c => (c.issueDate || '') <= reportDateTo);
     }
     return list;
-  }, [currentUser, reportBarangayFilter, reportCertTypeFilter, reportDateFrom, reportDateTo, issuedCertificates]);
+  }, [isUserAdmin, userAssignedBarangay, userBarangayId, reportBarangayFilter, reportCertTypeFilter, reportDateFrom, reportDateTo, issuedCertificates]);
 
   const reportTotalHeads = useMemo(() => {
-    return officialReportRecords.reduce((sum, c) => sum + (Number(c.numberOfHeads) || 1), 0);
+    return officialReportRecords.reduce((sum, c) => sum + (Number(c.numberOfHeads) || 0), 0);
   }, [officialReportRecords]);
 
   const reportTotalAmount = useMemo(() => {
@@ -842,21 +794,21 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
 
     const rows = officialReportRecords.map((c, idx) => [
       idx + 1,
-      `"${c.certificateNo}"`,
-      `"${c.issueDate}"`,
-      `"${c.certificateType || 'Barangay Certification'}"`,
-      `"${c.farmerName}"`,
-      `"${c.farmerBarangay || c.issuingBarangay || 'Hinunangan'}"`,
-      c.numberOfHeads || 1,
-      `"${c.buyerName || '—'}"`,
-      `"${c.destinationBarangay || c.destinationMunicipality || 'Hinunangan'}"`,
-      `"${c.orNumber || '—'}"`,
-      c.amountPaid || 0,
-      `"${c.punongBarangay || c.authorizedBy || 'Municipal Agriculturist'}"`,
-      `"${c.status || 'Active'}"`,
-    ]);
+      c.certificateNo || '—',
+      c.issueDate || '—',
+      c.certificateType || '—',
+      c.farmerName || '—',
+      c.farmerBarangay || c.issuingBarangay || '—',
+      c.numberOfHeads ?? '—',
+      c.buyerName || '—',
+      c.destinationBarangay || c.destinationMunicipality || '—',
+      c.orNumber || '—',
+      c.amountPaid ?? '—',
+      c.punongBarangay || c.authorizedBy || '—',
+      c.status || '—',
+    ].map(toCsvCell));
 
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const csvContent = [headers.map(toCsvCell).join(','), ...rows].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -874,80 +826,84 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
   };
 
   const handleExportOfficialReportPdf = async () => {
-    if (!officialReportPrintRef.current) return;
+    if (officialReportRecords.length === 0) {
+      setExportNotice('No official certificates match the selected filters. Adjust the report filters before exporting.');
+      return;
+    }
+    const element = officialReportPrintRef.current;
+    if (!element) {
+      setExportNotice('The official report is not available for PDF export.');
+      return;
+    }
     setIsExportingReportPdf(true);
     setExportNotice('Rendering official report into high-resolution PDF...');
 
     try {
-      const element = officialReportPrintRef.current;
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-        onclone: clonedDoc => {
-          const styleTags = clonedDoc.querySelectorAll('style');
-          styleTags.forEach(st => {
-            if (st.innerHTML && st.innerHTML.includes('oklch')) {
-              st.innerHTML = sanitizeOklchColors(st.innerHTML);
-            }
-          });
-        },
-      });
-
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4',
-      });
-
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = canvas.width;
-      const imgHeight = canvas.height;
-      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
-      const imgX = (pdfWidth - imgWidth * ratio) / 2;
-      const imgY = 6;
-
-      pdf.addImage(imgData, 'JPEG', imgX, imgY, imgWidth * ratio, imgHeight * ratio);
-      pdf.save(`MAO-Official-Certificate-Report-${reportBarangayFilter}-${Date.now()}.pdf`);
+      await downloadElementAsPdf(
+        element,
+        `MAO-Official-Certificate-Report-${reportBarangayFilter}-${Date.now()}.pdf`,
+        { format: 'letter', orientation: 'landscape', marginMm: 8 }
+      );
 
       setExportNotice('Official Certificate Report PDF generated and downloaded!');
       setTimeout(() => setExportNotice(null), 3500);
     } catch (err) {
-      console.error('PDF export error:', err);
-      setExportNotice('Failed to generate PDF. You can also use the native Print button.');
-      setTimeout(() => setExportNotice(null), 4000);
+      setExportNotice(err instanceof Error ? `Official report PDF generation failed: ${err.message}` : 'Official report PDF generation failed.');
+    } finally {
+      setIsExportingReportPdf(false);
+    }
+  };
+
+  const handleExportBiosecurityPdf = async () => {
+    const element = biosecurityReportRef.current;
+    if (!element) {
+      setExportNotice('The biosecurity report is not available for PDF export.');
+      return;
+    }
+    setIsExportingReportPdf(true);
+    try {
+      await downloadElementAsPdf(
+        element,
+        `MAO-Biosecurity-Report-${selectedBarangayScope}-${Date.now()}.pdf`,
+        { format: 'legal', orientation: 'landscape', marginMm: 8 }
+      );
+      setExportNotice('Biosecurity report PDF downloaded successfully.');
+      setTimeout(() => setExportNotice(null), 3500);
+    } catch (error) {
+      setExportNotice(error instanceof Error ? `Biosecurity PDF generation failed: ${error.message}` : 'Biosecurity PDF generation failed.');
     } finally {
       setIsExportingReportPdf(false);
     }
   };
 
   const handleViewCertificate = (cert: IssuedCertificate) => {
+    setArchivedTemplateOverride(cert.templateSnapshot || null);
     if (cert.templateSnapshot) {
       setSelectedTemplateId(cert.templateSnapshot.id);
     } else if (cert.templateId) {
       setSelectedTemplateId(cert.templateId);
+    } else {
+      setSelectedTemplateId('');
     }
 
     setActiveCertData({
+      certificateNo: cert.certificateNo,
       templateId: cert.templateSnapshot?.id || cert.templateId,
       templateStyle: cert.farmerBarangay?.toLowerCase().includes('esperanza')
         ? 'nueva_esperanza'
         : cert.farmerBarangay?.toLowerCase().includes('tuburan')
         ? 'tuburan'
         : 'nava',
-      barangay: cert.farmerBarangay || cert.issuingBarangay || 'Nava',
+      barangay: cert.farmerBarangay || cert.issuingBarangay || '',
       farmerName: cert.farmerName,
-      buyerName: cert.buyerName || 'Buyer',
-      destination: cert.destinationBarangay || cert.destinationMunicipality || 'Pastrana, Leyte',
-      numberOfHeads: cert.numberOfHeads || 1,
-      orNumber: cert.orNumber || '1675127',
-      amountPaid: cert.amountPaid || 100,
+      buyerName: cert.buyerName || '',
+      destination: cert.destinationBarangay || cert.destinationMunicipality || '',
+      numberOfHeads: cert.numberOfHeads ?? 0,
+      orNumber: cert.orNumber || '',
+      amountPaid: cert.amountPaid ?? '',
       issueDate: cert.issueDate,
-      punongBarangay: cert.punongBarangay || cert.authorizedBy || 'HON. VICENTE T. MADRONERO JR.',
-      bboName: cert.bboName || 'RANDY N. BURLAZA, BBO',
+      punongBarangay: cert.punongBarangay || cert.authorizedBy || '',
+      bboName: cert.bboName || '',
     });
     setDocumentType('barangay_certification');
   };
@@ -1261,15 +1217,29 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
 
             {/* Quick Actions */}
             <div className="flex shrink-0 items-center gap-2">
+              {(tplSearchQuery || tplBarangayFilter !== 'all' || tplDocTypeFilter !== 'all' || tplLanguageFilter !== 'all') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTplSearchQuery('');
+                    setTplBarangayFilter('all');
+                    setTplDocTypeFilter('all');
+                    setTplLanguageFilter('all');
+                  }}
+                  className="min-h-11 rounded-lg border border-stone-300 bg-white px-3 text-xs font-semibold text-stone-700 hover:bg-stone-50"
+                >
+                  Clear filters
+                </button>
+              )}
               <details className="relative">
                 <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 text-xs font-semibold text-stone-700 hover:bg-stone-50 focus-visible:outline-2 focus-visible:outline-emerald-700 [&::-webkit-details-marker]:hidden">
                   Template actions <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
                 </summary>
                 <div className="absolute right-0 z-40 mt-1 w-[min(16rem,calc(100vw-2rem))] rounded-xl border border-stone-200 bg-white p-1.5 shadow-xl">
-                  <button type="button" onClick={event => { setEditingTemplate(activeTemplate); setIsTemplateEditorOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50">
+                  <button type="button" disabled={!activeTemplate || isLoadingTemplates || Boolean(templateLoadError)} onClick={event => { setEditingTemplate(activeTemplate); setIsTemplateEditorOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50">
                     <Sliders className="h-4 w-4 text-stone-500" /> Customize template & logos
                   </button>
-                  <button type="button" onClick={event => { setEditingTemplate(undefined); setIsTemplateEditorOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50">
+                  <button type="button" disabled={isLoadingTemplates || Boolean(templateLoadError)} onClick={event => { setEditingTemplate(undefined); setIsTemplateEditorOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50">
                     <Sparkles className="h-4 w-4 text-stone-500" /> Create new template
                   </button>
                 </div>
@@ -1288,11 +1258,13 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
               {/* Dynamic Combo Box / Dropdown Select */}
               <div className="relative w-full min-w-0 flex-1 sm:max-w-lg">
                 <select
-                  value={selectedTemplateId}
+                  value={templateOptions.some(template => template.id === selectedTemplateId) ? selectedTemplateId : ''}
                   onChange={e => handleSelectTemplate(e.target.value)}
+                  disabled={isLoadingTemplates || Boolean(templateLoadError) || templateOptions.length === 0}
                   title={activeTemplate?.name || 'Select a certificate template'}
                   className="min-h-11 w-full min-w-0 rounded-xl border-2 border-blue-500/60 bg-white py-1.5 pl-3 pr-8 text-xs font-bold text-slate-900 shadow-2xs focus:outline-none focus:ring-2 focus:ring-blue-600 cursor-pointer"
                 >
+                  {templateOptions.length === 0 && <option value="">No saved templates available</option>}
                   {templateOptions.map(tpl => (
                     <option key={tpl.id} value={tpl.id}>
                       {tpl.name} {tpl.id === selectedTemplateId && !filteredTemplates.some(item => item.id === tpl.id) ? '(current selection)' : ''} {tpl.barangay && tpl.barangay !== 'All' ? `(Brgy. ${tpl.barangay})` : ''} {tpl.isDefaultPreset ? '★' : ''}
@@ -1320,13 +1292,16 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                 </div>
               )}
               {!isLoadingTemplates && templateLoadError && (
-                <p role="status" className="text-xs text-rose-700 sm:col-span-2 xl:col-span-4">
-                  Template list could not be loaded: {templateLoadError}
-                </p>
+                <div role="alert" className="flex flex-wrap items-center gap-3 text-xs text-rose-700 sm:col-span-2 xl:col-span-4">
+                  <span>Template list could not be loaded: {templateLoadError}</span>
+                  <button type="button" onClick={() => void loadTemplates()} className="min-h-10 rounded-lg border border-rose-300 px-3 font-bold hover:bg-rose-50">
+                    Retry
+                  </button>
+                </div>
               )}
               {!isLoadingTemplates && !templateLoadError && templates.length === 0 && (
                 <p role="status" className="text-xs text-amber-800 sm:col-span-2 xl:col-span-4">
-                  No saved templates are available. The built-in certificate layout remains available.
+                  No saved certificate templates are available. Create and save a template to enable preview and printing.
                 </p>
               )}
               {isLoadingTemplates && (
@@ -1359,11 +1334,12 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
+                  disabled={!activeTemplate || isLoadingTemplates || Boolean(templateLoadError)}
                   onClick={() => {
                     setEditingTemplate(activeTemplate);
                     setIsTemplateEditorOpen(true);
                   }}
-                  className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-bold text-purple-700 shadow-xs transition hover:bg-purple-100"
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-bold text-purple-700 shadow-xs transition hover:bg-purple-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Edit3 className="w-3.5 h-3.5" />
                   <span>Edit Layout / Logos</span>
@@ -1372,6 +1348,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                 <button
                   type="button"
                   onClick={handleTriggerPrint}
+                  disabled={!activeTemplate || !activeCertData.certificateNo || !activeCertData.farmerName}
                   className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-emerald-700 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800"
                 >
                   <Printer className="w-4 h-4" />
@@ -1381,7 +1358,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                 <button
                   type="button"
                   onClick={handleExportPdf}
-                  disabled={isExportingPdf}
+                  disabled={isExportingPdf || !activeTemplate || !activeCertData.certificateNo || !activeCertData.farmerName}
                   className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-blue-700 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-blue-800 disabled:opacity-50"
                 >
                   <FileText className="w-4 h-4" />
@@ -1389,15 +1366,26 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                 </button>
               </div>
             </div>
+            {(!activeTemplate || !activeCertData.certificateNo || !activeCertData.farmerName) && (
+              <p className="no-print px-2 text-xs text-amber-800" role="status">
+                Preview only. Save and issue the certificate before printing or downloading it.
+              </p>
+            )}
 
             {/* Render Authentic Certificate Container */}
             <div className="py-2">
-              <BarangayCertificateView
-                data={activeCertData}
-                template={activeTemplate}
-                logoSettings={logoSettings}
-                containerRef={printableReportRef}
-              />
+              {activeTemplate ? (
+                <BarangayCertificateView
+                  data={activeCertData}
+                  template={activeTemplate}
+                  logoSettings={logoSettings}
+                  containerRef={printableReportRef}
+                />
+              ) : (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  The saved certificate template is unavailable, so this document cannot be previewed or printed.
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1490,34 +1478,34 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                       <tr key={cert.certificateNo} className="hover:bg-slate-50/80 transition">
                         <td className="py-3 px-3">
                           <span className="font-mono font-bold text-blue-700 block">
-                            {cert.certificateNo}
+                            {cert.certificateNo || '—'}
                           </span>
-                          <span className="text-[10px] text-stone-400">{cert.issueDate}</span>
+                          <span className="text-[10px] text-stone-400">{cert.issueDate || '—'}</span>
                         </td>
                         <td className="py-3 px-3 font-bold text-slate-900 uppercase">
-                          {cert.farmerName}
+                          {cert.farmerName || '—'}
                         </td>
                         <td className="py-3 px-3 font-semibold text-slate-700">
-                          Brgy. {cert.farmerBarangay || cert.issuingBarangay || 'Nava'}
+                          {cert.farmerBarangay || cert.issuingBarangay || '—'}
                         </td>
                         <td className="py-3 px-3">
                           <span className="font-black px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded">
-                            {cert.numberOfHeads || 1} Heads
+                            {cert.numberOfHeads ?? '—'} Heads
                           </span>
                         </td>
                         <td className="py-3 px-3">
                           <span className="font-semibold text-slate-800 block">
-                            {cert.buyerName || 'Local Meat Trader'}
+                            {cert.buyerName || '—'}
                           </span>
                           <span className="text-[10px] text-stone-400">
-                            {cert.destinationBarangay || cert.destinationMunicipality || 'Hinunangan'}
+                            {cert.destinationBarangay || cert.destinationMunicipality || '—'}
                           </span>
                         </td>
                         <td className="py-3 px-3 font-mono font-semibold text-slate-800">
                           {cert.orNumber || '—'}
                         </td>
                         <td className="py-3 px-3 text-slate-700 font-semibold">
-                          {cert.punongBarangay || cert.authorizedBy}
+                          {cert.punongBarangay || cert.authorizedBy || '—'}
                         </td>
                         <td className="py-3 px-3 text-right">
                           <div className="flex items-center justify-end gap-1.5">
@@ -1800,34 +1788,34 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                           </td>
                           <td className="py-2 px-3 border-r border-stone-200">
                             <span className="font-mono font-bold text-blue-700 block">
-                              {cert.certificateNo}
+                              {cert.certificateNo || '—'}
                             </span>
-                            <span className="text-[10px] text-stone-400">{cert.issueDate}</span>
+                            <span className="text-[10px] text-stone-400">{cert.issueDate || '—'}</span>
                           </td>
                           <td className="py-2 px-3 border-r border-stone-200 font-bold uppercase">
-                            {cert.farmerName}
+                            {cert.farmerName || '—'}
                           </td>
                           <td className="py-2 px-3 border-r border-stone-200">
-                            Brgy. {cert.farmerBarangay || cert.issuingBarangay || 'Nava'}
+                            {cert.farmerBarangay || cert.issuingBarangay || '—'}
                           </td>
                           <td className="py-2 px-3 border-r border-stone-200 text-center font-bold">
-                            {cert.numberOfHeads || 1}
+                            {cert.numberOfHeads ?? '—'}
                           </td>
                           <td className="py-2 px-3 border-r border-stone-200">
-                            <span className="block font-medium">{cert.buyerName || 'Local Meat Trader'}</span>
+                            <span className="block font-medium">{cert.buyerName || '—'}</span>
                             <span className="text-[10px] text-stone-400 block">
-                              {cert.destinationBarangay || cert.destinationMunicipality || 'Hinunangan'}
+                              {cert.destinationBarangay || cert.destinationMunicipality || '—'}
                             </span>
                           </td>
                           <td className="py-2 px-3 border-r border-stone-200 font-mono">
-                            <span className="block font-semibold">O.R. #{cert.orNumber || '1675127'}</span>
+                            <span className="block font-semibold">O.R. #{cert.orNumber || '—'}</span>
                             <span className="text-[10px] text-emerald-700 font-bold block">
-                              ₱{Number(cert.amountPaid || 100).toFixed(2)}
+                              {cert.amountPaid == null ? '—' : `₱${Number(cert.amountPaid).toFixed(2)}`}
                             </span>
                           </td>
                           <td className="py-2 px-3">
-                            <span className="font-semibold block">{cert.punongBarangay || cert.authorizedBy || 'HON. VICENTE T. MADRONERO JR.'}</span>
-                            <span className="text-[10px] text-stone-500 block">Punong Barangay / BBO</span>
+                            <span className="font-semibold block">{cert.punongBarangay || cert.authorizedBy || '—'}</span>
+                            <span className="text-[10px] text-stone-500 block">{cert.status || '—'}</span>
                           </td>
                         </tr>
                       ))
@@ -1933,7 +1921,9 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
               </div>
               <div>
                 <span className="text-[10px] uppercase font-bold text-stone-500 block">Biosecurity Rating</span>
-                <span className="text-base font-black text-purple-700">100% Green Zone</span>
+                <span className="text-base font-black text-purple-700">
+                  {greenZoneCount} compliant
+                </span>
               </div>
             </div>
 
@@ -1957,14 +1947,14 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredSwineList.slice(0, 50).map((swine, idx) => (
+                  {filteredSwineList.map((swine, idx) => (
                     <tr key={swine.id} className={idx % 2 === 1 ? 'bg-slate-50/50' : 'bg-white'}>
                       <td className="border border-stone-300 p-2 text-stone-500 font-mono text-center">
                         {idx + 1}
                       </td>
                       {isColVisible('rsbsa') && (
                         <td className="border border-stone-300 p-2 font-mono text-blue-700 font-semibold">
-                          {getFormattedRsbsaId(swine, idx)}
+                          {getFormattedRsbsaId(swine)}
                         </td>
                       )}
                       {isColVisible('name') && (
@@ -1974,12 +1964,12 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                       )}
                       {isColVisible('address') && (
                         <td className="border border-stone-300 p-2 font-medium">
-                          Brgy. {swine.barangay || 'Poblacion'}
+                          {swine.barangay || '—'}
                         </td>
                       )}
                       {isColVisible('birthday') && (
                         <td className="border border-stone-300 p-2 text-stone-600 font-mono">
-                          {getFarmerBirthday(swine, idx)}
+                          {getFarmerBirthday(swine)}
                         </td>
                       )}
                       {isColVisible('swineDob') && (
@@ -1996,20 +1986,20 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                         <td className="border border-stone-300 p-2 text-center font-bold">1</td>
                       )}
                       {isColVisible('breed') && (
-                        <td className="border border-stone-300 p-2">{swine.breed || 'Large White'}</td>
+                        <td className="border border-stone-300 p-2">{swine.breed || '—'}</td>
                       )}
                       {isColVisible('weight') && (
-                        <td className="border border-stone-300 p-2 text-center">{swine.weightKg || 85}</td>
+                        <td className="border border-stone-300 p-2 text-center">{swine.weightKg ?? '—'}</td>
                       )}
                       {isColVisible('farmType') && (
                         <td className="border border-stone-300 p-2 uppercase text-[10px] font-semibold">
-                          {swine.farmType || 'Backyard'}
+                          {swine.farmScale || swine.farmType || '—'}
                         </td>
                       )}
                       {isColVisible('biosecurity') && (
                         <td className="border border-stone-300 p-2 text-center">
-                          <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                            Compliant
+                          <span className="px-1.5 py-0.5 rounded bg-stone-100 text-stone-700 font-bold text-[10px]">
+                            {swine.biosecurityStatus || 'Not recorded'}
                           </span>
                         </td>
                       )}
@@ -2064,25 +2054,25 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
               Hinunangan Swine Raisers Directory
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {filteredSwineList.slice(0, 30).map((swine, idx) => (
+              {filteredSwineList.map(swine => (
                 <div
                   key={swine.id}
                   className="p-3.5 rounded-xl border border-stone-200 bg-slate-50 space-y-1.5"
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-[10px] font-bold text-blue-700">
-                      {getFormattedRsbsaId(swine, idx)}
+                      {getFormattedRsbsaId(swine)}
                     </span>
                     <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                      Active
+                      {swine.status || '—'}
                     </span>
                   </div>
                   <h4 className="font-bold text-xs text-slate-900 uppercase">{swine.farmerName}</h4>
                   <p className="text-[11px] text-slate-600">
-                    📍 Barangay {swine.barangay || 'Poblacion'}
+                    📍 Barangay {swine.barangay || '—'}
                   </p>
                   <p className="text-[11px] text-slate-500">
-                    🐷 {swine.breed || 'Large White'} • {swine.weightKg || 85} kg
+                    🐷 {swine.breed || '—'} • {swine.weightKg ?? '—'} kg
                   </p>
                 </div>
               ))}
@@ -2112,13 +2102,12 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    triggerScopedPrint('biosecurity-report');
-                  }}
+                  onClick={handleExportBiosecurityPdf}
+                  disabled={isExportingReportPdf}
                   className="px-4 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 transition cursor-pointer"
                 >
                   <FileText className="w-4 h-4" />
-                  <span>Download PDF</span>
+                  <span>{isExportingReportPdf ? 'Generating PDF...' : 'Download PDF'}</span>
                 </button>
               </div>
             </div>
@@ -2148,22 +2137,22 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                   OFFICIAL BIOSECURITY AUDIT & ASF SURVEILLANCE COMPLIANCE REPORT
                 </h1>
                 <p className="text-xs text-stone-500 font-semibold">
-                  Coverage: All 40 Barangays of Hinunangan • Surveillance Period: CY 2026
+                  Coverage: {selectedBarangayScope === 'all' ? 'All listed barangays' : `Barangay ${selectedBarangayScope}`} • Based on saved registry records
                 </p>
               </div>
 
               {/* Status Banner */}
               <div className="bg-emerald-50 border border-emerald-300 p-4 rounded-xl flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-black text-emerald-950 uppercase">
-                    Municipal Biosecurity Status: ASF-Free Zone (Green Zone)
+                  <h3 className="text-sm font-black text-stone-900 uppercase">
+                    Biosecurity data summary
                   </h3>
-                  <p className="text-xs text-emerald-800 mt-0.5">
-                    100% compliance across all 40 Hinunangan barangays under the BABay ASF Surveillance Program.
+                  <p className="text-xs text-stone-700 mt-0.5">
+                    {greenZoneCount} of {totalSwineHeads} visible registered records are marked compliant. This report does not infer area-wide ASF status.
                   </p>
                 </div>
-                <div className="bg-emerald-700 text-white font-black text-xs px-3.5 py-1.5 rounded-lg shadow-2xs">
-                  GREEN ZONE (ASF-FREE)
+                <div className="bg-stone-100 text-stone-800 font-black text-xs px-3.5 py-1.5 rounded-lg shadow-2xs">
+                  Saved status only
                 </div>
               </div>
 
@@ -2182,10 +2171,23 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                     </tr>
                   </thead>
                   <tbody>
-                    {HINUNANGAN_BARANGAYS.map((b, idx) => {
-                      const count = swineList.filter(
+                    {biosecurityReportBarangays.map((b, idx) => {
+                      const records = filteredSwineList.filter(
                         s => (s.barangay || '').toLowerCase() === b.name.toLowerCase()
-                      ).length;
+                      );
+                      const auditedRecords = records.filter(
+                        s => s.biosecurityStatus != null || s.biosecurityScore != null
+                      );
+                      const footbathCount = auditedRecords.filter(s => s.biosecurity?.footbathInstalled).length;
+                      const setbackRecords = records.filter(s => typeof s.setbackCompliant === 'boolean');
+                      const setbackPassCount = setbackRecords.filter(s => s.setbackCompliant).length;
+                      const zoneCounts = records.reduce<Record<string, number>>((counts, record) => {
+                        if (record.asfZone) counts[record.asfZone] = (counts[record.asfZone] || 0) + 1;
+                        return counts;
+                      }, {});
+                      const zones = Object.entries(zoneCounts)
+                        .map(([zone, count]) => `${zone} (${count})`)
+                        .join(', ');
                       return (
                         <tr key={b.id} className={idx % 2 === 1 ? 'bg-slate-50/60' : 'bg-white'}>
                           <td className="border border-stone-300 p-2 text-stone-500 font-mono text-center">
@@ -2195,21 +2197,19 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                             {b.name}
                           </td>
                           <td className="border border-stone-300 p-2 text-center font-semibold">
-                            {count > 0 ? count : 4}
+                            {records.length}
                           </td>
                           <td className="border border-stone-300 p-2 text-center font-semibold text-blue-700">
-                            {count > 0 ? count : 4}
+                            {auditedRecords.length || '—'}
                           </td>
-                          <td className="border border-stone-300 p-2 text-center text-emerald-700 font-bold">
-                            100% Verified
+                          <td className="border border-stone-300 p-2 text-center font-bold">
+                            {auditedRecords.length ? `${footbathCount}/${auditedRecords.length} recorded` : 'Not recorded'}
                           </td>
-                          <td className="border border-stone-300 p-2 text-center text-emerald-700 font-semibold">
-                            Pass (Level 1)
+                          <td className="border border-stone-300 p-2 text-center font-semibold">
+                            {setbackRecords.length ? `${setbackPassCount}/${setbackRecords.length} pass` : 'Not recorded'}
                           </td>
                           <td className="border border-stone-300 p-2 text-center">
-                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-black text-[10px]">
-                              GREEN ZONE
-                            </span>
+                            {zones || 'Not recorded'}
                           </td>
                         </tr>
                       );
@@ -2249,17 +2249,16 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
           initialTemplate={editingTemplate}
           onClose={() => setIsTemplateEditorOpen(false)}
           onSave={async savedTemplate => {
-            try {
-              const updated = [savedTemplate, ...templates.filter(template => template.id !== savedTemplate.id)];
-              const persisted = await moduleDataApi.save('certificate_templates', updated);
-              setTemplates(persisted);
-              setSelectedTemplateId(savedTemplate.id);
-              setIsTemplateEditorOpen(false);
-              setExportNotice(`Template "${savedTemplate.name}" saved successfully!`);
-              setTimeout(() => setExportNotice(null), 3500);
-            } catch (error) {
-              setExportNotice(error instanceof Error ? error.message : 'Unable to save report template to database.');
+            if (isLoadingTemplates || templateLoadError) {
+              throw new Error('Reload the saved template list before creating or updating a template.');
             }
+            const updated = [savedTemplate, ...templates.filter(template => template.id !== savedTemplate.id)];
+            const persisted = await moduleDataApi.save('certificate_templates', updated);
+            setTemplates(persisted);
+            setSelectedTemplateId(savedTemplate.id);
+            setIsTemplateEditorOpen(false);
+            setExportNotice(`Template "${savedTemplate.name}" saved successfully!`);
+            setTimeout(() => setExportNotice(null), 3500);
           }}
         />
       )}
@@ -2279,7 +2278,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
           setIsCreateCertModalOpen(false);
           setCertificateToEdit(null);
         }}
-        swineList={swineList}
+        swineList={filteredSwineList}
         barangays={barangays}
         currentUser={currentUser}
         onCertificateIssued={handleCertificateIssuedFromModal}

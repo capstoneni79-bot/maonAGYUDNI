@@ -18,6 +18,7 @@ interface DynamicCertificateViewProps {
   data: TemplateDataContext;
   containerRef?: React.RefObject<HTMLDivElement>;
   isPrintMode?: boolean;
+  previewOnly?: boolean;
 }
 
 // Helper to render a specific logo item
@@ -34,7 +35,7 @@ const RenderLogoItem: React.FC<{ logo: CertificateLogoItem; defaultBarangay?: st
     return (
       <div style={{ width: `${width}px`, height: `${height}px` }} className="flex items-center justify-center shrink-0">
         <SealBarangay
-          barangayName={logo.barangayName || defaultBarangay || 'Nava'}
+          barangayName={logo.barangayName || defaultBarangay || 'Barangay'}
           className="w-full h-full object-contain"
           customUrl={logo.customUrl}
         />
@@ -177,8 +178,10 @@ export const DynamicCertificateView: React.FC<DynamicCertificateViewProps> = ({
   template,
   data,
   containerRef,
+  previewOnly = false,
 }) => {
-  const rawBrgy = data.barangay || template.barangay || 'Nava';
+  const templateBarangay = template.barangay.toLowerCase() === 'all' ? '' : template.barangay;
+  const rawBrgy = data.barangay || templateBarangay || '—';
   const brgyDisplay = rawBrgy.toUpperCase();
 
   // Separate and sort logos by position
@@ -285,7 +288,7 @@ export const DynamicCertificateView: React.FC<DynamicCertificateViewProps> = ({
     <div
       ref={containerRef}
       id="printable-certificate-root"
-      data-print-document="certificate"
+      data-print-document={previewOnly ? 'certificate-template-preview' : 'certificate'}
       className="printable-certificate-container mx-auto w-full max-w-[820px] overflow-hidden rounded-xl border border-stone-300 bg-white p-8 font-serif text-stone-900 shadow-xl relative select-text transition-all sm:p-12"
       style={{
         minHeight: '1050px',
@@ -293,6 +296,11 @@ export const DynamicCertificateView: React.FC<DynamicCertificateViewProps> = ({
         color: '#000000',
       }}
     >
+      {previewOnly && (
+        <div className="relative z-20 mb-4 border-2 border-amber-700 bg-amber-50 px-3 py-2 text-center font-sans text-xs font-black uppercase tracking-wider text-amber-900">
+          Template preview — not an issued certificate
+        </div>
+      )}
       {/* Background Watermark */}
       {template.watermark && template.watermark.enabled && (
         <div
@@ -468,33 +476,33 @@ export const DynamicCertificateView: React.FC<DynamicCertificateViewProps> = ({
                 <>
                   <p className="font-bold">
                     Official Receipt Paid:{' '}
-                    <span className="font-mono">{data.or_number || template.receipt.orNumber || '1675127'}</span> / ₱
-                    {data.amount_paid || template.receipt.amountPaid || '100.00'}
+                    <span className="font-mono">{data.or_number || template.receipt.orNumber || '—'}</span> / ₱
+                    {data.amount_paid || template.receipt.amountPaid || '—'}
                   </p>
                   <p className="font-bold uppercase">
-                    Issued on: {data.date_issued || new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                    Issued on: {data.date_issued || '—'}
                   </p>
                   <p className="font-bold">
-                    Issued at: {data.issued_at || `Barangay ${rawBrgy}, Hinunangan, Southern Leyte`}
+                    Issued at: {data.issued_at || (rawBrgy !== '—' ? `Barangay ${rawBrgy}, Hinunangan, Southern Leyte` : '—')}
                   </p>
                 </>
               ) : (
                 <>
                   <p className="font-bold">
-                    O. R. # : <span className="font-mono">{data.or_number || template.receipt.orNumber || '4278912'}</span>
+                    O. R. # : <span className="font-mono">{data.or_number || template.receipt.orNumber || '—'}</span>
                   </p>
                   <p className="font-bold">
-                    Issued On : {data.date_issued || new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                    Issued On : {data.date_issued || '—'}
                   </p>
                   <p className="font-bold">
-                    Issued At : {data.issued_at || `Bgy. ${rawBrgy}, Hinunangan, So. Leyte.`}
+                    Issued At : {data.issued_at || (rawBrgy !== '—' ? `Bgy. ${rawBrgy}, Hinunangan, So. Leyte.` : '—')}
                   </p>
                 </>
               )}
             </div>
 
             <div className="text-[10px] text-stone-400 font-mono text-right">
-              <span>Doc Ref: {data.certificateNo || `HN-CERT-${Date.now().toString().slice(-6)}`}</span>
+              <span>Doc Ref: {data.certificateNo || '—'}</span>
               <br />
               <span>LGU Hinunangan • DA Swine Registry System</span>
             </div>

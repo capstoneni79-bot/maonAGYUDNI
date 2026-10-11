@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Barangay, SwineRecord, SwineTakeoffRecord, UserAccount } from '../../types';
 import { storageService } from '../../services/storageService';
+import { printDocument } from '../../utils/printUtils';
 
 interface SwineTakeoffManagerProps {
   swineList: SwineRecord[];
@@ -715,7 +716,7 @@ export const SwineTakeoffManager: React.FC<SwineTakeoffManagerProps> = ({
       {/* PRINT GATE PASS MODAL */}
       {printingRecord && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-xl w-full shadow-2xl border border-stone-200 overflow-hidden my-8 p-8 space-y-6">
+          <div data-print-document="takeoff-record" className="bg-white rounded-3xl max-w-xl w-full shadow-2xl border border-stone-200 overflow-hidden my-8 p-8 space-y-6">
             {/* Republic Header */}
             <div className="text-center space-y-1 border-b-2 border-emerald-900 pb-4">
               <div className="text-[10px] uppercase tracking-widest text-stone-500 font-semibold">
@@ -743,7 +744,7 @@ export const SwineTakeoffManager: React.FC<SwineTakeoffManagerProps> = ({
                   <span className="font-mono font-black text-stone-900 text-sm">{printingRecord.earTagNo}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-stone-500 block">Certified Liveweight:</span>
+                  <span className="text-[10px] text-stone-500 block">Recorded Weight:</span>
                   <span className="font-black text-emerald-900 text-sm">{printingRecord.weightKg} kg</span>
                 </div>
                 <div>
@@ -757,7 +758,7 @@ export const SwineTakeoffManager: React.FC<SwineTakeoffManagerProps> = ({
                 </div>
                 <div>
                   <span className="text-[10px] text-stone-500 block">Hauler / Vehicle Plate:</span>
-                  <span className="font-mono font-bold">{printingRecord.vehiclePlateNo || 'N/A'}</span>
+                  <span className="font-mono font-bold">{printingRecord.vehiclePlateNo || 'Not recorded'}</span>
                 </div>
                 <div>
                   <span className="text-[10px] text-stone-500 block">Buyer Consolidator:</span>
@@ -765,15 +766,9 @@ export const SwineTakeoffManager: React.FC<SwineTakeoffManagerProps> = ({
                 </div>
               </div>
 
-              {/* Security Clearances */}
-              <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-[11px] space-y-1">
-                <div className="font-bold text-emerald-900">Biosecurity & Veterinary Attestation:</div>
-                <div>✓ Animal originates from certified Green ASF Biosurveillance Zone.</div>
-                <div>✓ Transport vehicle undergone mandatory tire disinfection at municipal staging station.</div>
-                <div>✓ Live animal physical inspection confirmed free of communicable symptoms.</div>
-                <div className="font-mono text-emerald-800 pt-1">
-                  VHC Reference No: <strong>{printingRecord.vhcNumber || 'VHC-CLEARANCE-OK'}</strong>
-                </div>
+              <div className="p-3 rounded-xl border border-stone-200 bg-stone-50 text-[11px]">
+                <span className="font-semibold">Veterinary Health Certificate reference: </span>
+                <span className="font-mono">{printingRecord.vhcNumber || 'Not recorded'}</span>
               </div>
             </div>
 
@@ -784,8 +779,8 @@ export const SwineTakeoffManager: React.FC<SwineTakeoffManagerProps> = ({
                 <div className="text-[10px] text-stone-500">Livestock Quarantine Inspector</div>
               </div>
               <div>
-                <div className="font-bold text-stone-900 underline uppercase">ENGR. ARNEL M. VASQUEZ</div>
-                <div className="text-[10px] text-stone-500">Municipal Agriculturist (MAO)</div>
+                <div className="font-bold text-stone-900 underline uppercase">—</div>
+                <div className="text-[10px] text-stone-500">Authorized receiving officer</div>
               </div>
             </div>
 
@@ -793,13 +788,19 @@ export const SwineTakeoffManager: React.FC<SwineTakeoffManagerProps> = ({
             <div className="flex items-center justify-end gap-2 pt-4 border-t border-stone-100">
               <button
                 onClick={() => setPrintingRecord(null)}
-                className="px-4 py-2 rounded-xl border border-stone-300 text-stone-700 text-xs font-bold hover:bg-stone-50 cursor-pointer"
+                className="no-print px-4 py-2 rounded-xl border border-stone-300 text-stone-700 text-xs font-bold hover:bg-stone-50 cursor-pointer"
               >
                 Close
               </button>
               <button
-                onClick={() => window.print()}
-                className="px-5 py-2 rounded-xl bg-emerald-800 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm"
+                onClick={() => {
+                  try {
+                    printDocument('takeoff-record');
+                  } catch (error) {
+                    window.alert(error instanceof Error ? error.message : 'Unable to open the browser print dialog.');
+                  }
+                }}
+                className="no-print px-5 py-2 rounded-xl bg-emerald-800 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>Print Gate Pass Slip</span>

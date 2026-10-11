@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ASFRegulatoryDocument } from '../../types';
 import { Printer, ArrowLeft, Building, Scale, ShieldCheck } from 'lucide-react';
+import { printDocument } from '../../utils/printUtils';
 
 interface LegalDocumentPrintViewProps {
   document: ASFRegulatoryDocument;
@@ -11,8 +12,13 @@ export const LegalDocumentPrintView: React.FC<LegalDocumentPrintViewProps> = ({
   document: doc,
   onClose,
 }) => {
+  const [printError, setPrintError] = useState('');
   const handlePrint = () => {
-    window.print();
+    try {
+      printDocument('legal-document');
+    } catch (error) {
+      setPrintError(error instanceof Error ? error.message : 'Unable to open the browser print dialog.');
+    }
   };
 
   return (
@@ -28,9 +34,13 @@ export const LegalDocumentPrintView: React.FC<LegalDocumentPrintViewProps> = ({
         </button>
 
         <div className="flex items-center gap-3">
-          <span className="text-xs text-stone-500 font-medium hidden sm:inline">
-            Official PDF / Paper Format Ready
-          </span>
+          {printError ? (
+            <span role="alert" className="text-xs font-medium text-red-700">{printError}</span>
+          ) : (
+            <span className="text-xs text-stone-500 font-medium hidden sm:inline">
+              Official document ready to print
+            </span>
+          )}
           <button
             type="button"
             onClick={handlePrint}
@@ -42,7 +52,7 @@ export const LegalDocumentPrintView: React.FC<LegalDocumentPrintViewProps> = ({
       </div>
 
       {/* Printable Sheet */}
-      <div className="w-full max-w-4xl bg-white text-stone-900 p-8 sm:p-14 shadow-2xl rounded-2xl print:shadow-none print:p-0 print:m-0 print:max-w-none print:w-full font-serif leading-relaxed">
+      <div data-print-document="legal-document" className="w-full max-w-4xl bg-white text-stone-900 p-8 sm:p-14 shadow-2xl rounded-2xl print:shadow-none print:p-0 print:m-0 print:max-w-none print:w-full font-serif leading-relaxed">
         {/* Official Letterhead Header */}
         <div className="text-center border-b-2 border-stone-800 pb-6 mb-8">
           <p className="text-xs tracking-widest uppercase text-stone-600 font-sans font-semibold">

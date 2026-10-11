@@ -47,6 +47,7 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
 }) => {
   const [allTemplates, setAllTemplates] = useState<CertificateTemplate[]>([]);
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
+  const [templateLoadAttempt, setTemplateLoadAttempt] = useState(0);
   const isEditMode = Boolean(initialData?.id || initialData?.certificateNo || initialData?.controlNumber);
   const [saveError, setSaveError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -59,20 +60,26 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(initialData?.templateId || '');
 
   const activeTemplate = useMemo(() => {
-    return allTemplates.find(t => t.id === selectedTemplateId) ||
-      allTemplates.find(t => t.isActive && (t.barangay === 'All' || t.barangay.toLowerCase() === selectedBarangay.toLowerCase())) ||
-      allTemplates.find(t => t.isActive) || allTemplates[0] || null;
-  }, [allTemplates, selectedTemplateId, selectedBarangay]);
+    return allTemplates.find(template => template.id === selectedTemplateId) ||
+      (initialData?.templateSnapshot?.id === selectedTemplateId ? initialData.templateSnapshot as CertificateTemplate : null);
+  }, [allTemplates, selectedTemplateId, initialData?.templateSnapshot]);
+
+  const initialSwineRecord = swineList.find(s => s.barangay === selectedBarangay) || swineList[0];
+  const initialFarmerSwineCount = initialSwineRecord
+    ? swineList.filter(
+        s => s.farmerName === initialSwineRecord.farmerName && s.barangay === initialSwineRecord.barangay
+      ).length
+    : 0;
 
   // Form Field States
   const [farmerName, setFarmerName] = useState<string>(
-    initialData?.farmerName || (swineList[0]?.farmerName || '')
+    initialData?.farmerName || initialSwineRecord?.farmerName || ''
   );
   const [associationName, setAssociationName] = useState<string>(
-    initialData?.associationName || (selectedBarangay.toLowerCase().includes('nueva') ? 'NUEVA ESPERANZA SLP ASS.' : '')
+    initialData?.associationName || ''
   );
   const [farmerAgeCivilStatus, setFarmerAgeCivilStatus] = useState<string>(
-    initialData?.farmerAgeCivilStatus || 'hingkod ang panu-igon'
+    initialData?.farmerAgeCivilStatus || ''
   );
   const [buyerName, setBuyerName] = useState<string>(
     initialData?.buyerName || ''
@@ -81,7 +88,7 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
     initialData?.destination || ''
   );
   const [numberOfHeads, setNumberOfHeads] = useState<number>(
-    initialData?.numberOfHeads || (initialData ? 1 : (swineList.length > 0 ? 1 : 0))
+    initialData?.numberOfHeads ?? (initialData ? 1 : initialFarmerSwineCount)
   );
   const [swineAge, setSwineAge] = useState<string>(() => {
     if (initialData?.swineAge) return initialData.swineAge;
@@ -106,10 +113,10 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
     initialData?.priceDescription || (initialData?.estimatedPricePhp ? `₱${initialData.estimatedPricePhp.toLocaleString()}` : '')
   );
   const [orNumber, setOrNumber] = useState<string>(
-    initialData?.orNumber || activeTemplate?.receipt?.orNumber || `OR-${Math.floor(1000000 + Math.random() * 9000000)}`
+    initialData?.orNumber || activeTemplate?.receipt?.orNumber || ''
   );
   const [amountPaid, setAmountPaid] = useState<string | number>(
-    initialData?.amountPaid || activeTemplate?.receipt?.amountPaid || '100.00'
+    initialData?.amountPaid ?? activeTemplate?.receipt?.amountPaid ?? ''
   );
   const [issueDate, setIssueDate] = useState<string>(
     initialData?.issueDate || new Date().toISOString().substring(0, 10)
@@ -123,20 +130,42 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
     let active = true;
     setIsLoadingTemplates(true);
     setSaveError('');
+    setAllTemplates([]);
     moduleDataApi.get<CertificateTemplate[]>('certificate_templates').then(templates => {
       if (!active) return;
       setAllTemplates(templates);
-      const preferred = templates.find(template => template.id === initialData?.templateId) ||
-        templates.find(template => template.isActive && (template.barangay === 'All' || template.barangay.toLowerCase() === selectedBarangay.toLowerCase())) ||
-        templates.find(template => template.isActive) || templates[0];
-      if (preferred) setSelectedTemplateId(preferred.id);
+      const persistedSelection = templates.find(template => template.id === initialData?.templateId);
+      const snapshotSelection = initialData?.templateSnapshot?.id === initialData?.templateId
+        ? initialData.templateSnapshot as CertificateTemplate
+        : undefined;
+      if (initialData?.templateId) {
+        setSelectedTemplateId(persistedSelection?.id || snapshotSelection?.id || initialData.templateId);
+        if (!persistedSelection && !snapshotSelection) {
+          setSaveError('The template used by this issued certificate is no longer available. Its saved certificate details will not be replaced with another template.');
+        }
+      } else {
+        const selectedScope = (initialData?.barangay || initialData?.farmerBarangay || currentUser?.assignedBarangay || barangays[0]?.name || '').trim().toLowerCase();
+        const preferred = templates.find(template => {
+          const scope = (template.barangay || '').trim().toLowerCase();
+          return template.isActive && (!scope || scope === 'all' || scope === selectedScope);
+        });
+        setSelectedTemplateId(preferred?.id || '');
+      }
     }).catch(error => {
       if (active) setSaveError(error instanceof Error ? error.message : 'Unable to load certificate templates from database.');
     }).finally(() => {
       if (active) setIsLoadingTemplates(false);
     });
     return () => { active = false; };
-  }, [isOpen, initialData?.templateId]);
+  }, [
+    isOpen,
+    initialData?.templateId,
+    initialData?.barangay,
+    initialData?.farmerBarangay,
+    currentUser?.assignedBarangay,
+    barangays[0]?.name,
+    templateLoadAttempt,
+  ]);
 
   useEffect(() => {
     if (!isOpen || !initialData) return;
@@ -151,7 +180,7 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
     if (initialData.destination || initialData.destinationMunicipality || initialData.destinationBarangay) {
       setDestination(initialData.destination || initialData.destinationMunicipality || initialData.destinationBarangay || '');
     }
-    if (initialData.numberOfHeads !== undefined) setNumberOfHeads(Number(initialData.numberOfHeads) || 1);
+    if (initialData.numberOfHeads !== undefined) setNumberOfHeads(Number(initialData.numberOfHeads));
     if (initialData.swineAge) setSwineAge(initialData.swineAge);
     if (initialData.femaleCount !== undefined) setFemaleCount(initialData.femaleCount);
     if (initialData.maleCount !== undefined) setMaleCount(initialData.maleCount);
@@ -168,16 +197,19 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
 
   // When barangay changes, auto-suggest template if user hasn't explicitly locked another
   useEffect(() => {
+    if (initialData?.templateId) return;
     const matched = allTemplates.find(template => template.isActive &&
-      (template.barangay === 'All' || template.barangay.toLowerCase() === selectedBarangay.toLowerCase()));
+      (!template.barangay || template.barangay === 'All' || template.barangay.toLowerCase() === selectedBarangay.toLowerCase()));
     if (matched && matched.id !== selectedTemplateId) {
       setSelectedTemplateId(matched.id);
+    } else if (!matched && !initialData?.templateId) {
+      setSelectedTemplateId('');
     }
-  }, [allTemplates, selectedBarangay]);
+  }, [allTemplates, selectedBarangay, initialData?.templateId]);
 
   // When template changes, update receipt defaults
   useEffect(() => {
-    if (activeTemplate?.receipt?.amountPaid && !initialData?.amountPaid) {
+    if (activeTemplate?.receipt?.amountPaid && initialData?.amountPaid == null) {
       setAmountPaid(activeTemplate.receipt.amountPaid);
     }
     if (activeTemplate?.receipt?.orNumber && !initialData?.orNumber) {
@@ -188,15 +220,21 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
   // When farmer is selected from swine list
   const handleFarmerSelect = (farmerNameSelected: string) => {
     setFarmerName(farmerNameSelected);
-    const matched = swineList.filter(s => s.farmerName === farmerNameSelected);
-    if (matched.length > 0) {
-      setSelectedBarangay(matched[0].barangay || selectedBarangay);
-      setNumberOfHeads(matched.length);
-      const females = matched.filter(s => s.gender === 'female').length;
-      const males = matched.filter(s => s.gender === 'male').length;
-      setFemaleCount(females || Math.ceil(matched.length / 2));
-      setMaleCount(males || Math.floor(matched.length / 2));
-      const dob = matched[0].birthDate || matched[0].dateOfBirth || matched[0].date_of_birth || matched[0].dob;
+    const matched = swineList.filter(
+      s => s.farmerName === farmerNameSelected && (!selectedBarangay || s.barangay === selectedBarangay)
+    );
+    const farmerRecords = matched.length > 0
+      ? matched
+      : swineList.filter(s => s.farmerName === farmerNameSelected);
+    if (farmerRecords.length > 0) {
+      setSelectedBarangay(farmerRecords[0].barangay || selectedBarangay);
+      setNumberOfHeads(farmerRecords.length);
+      const females = farmerRecords.filter(s => s.gender === 'female').length;
+      const males = farmerRecords.filter(s => s.gender === 'male').length;
+      setFemaleCount(females);
+      setMaleCount(males);
+      setSwineAge('');
+      const dob = farmerRecords[0].birthDate || farmerRecords[0].dateOfBirth || farmerRecords[0].date_of_birth || farmerRecords[0].dob;
       if (dob) {
         const calc = calculateSwineAge(dob);
         if (calc.hasDob) {
@@ -213,6 +251,15 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
       <div role="alert" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4 text-white">
         <div className="max-w-md space-y-4 rounded-lg bg-slate-900 p-6">
           <p>{isLoadingTemplates ? 'Loading certificate templates from database...' : saveError || 'No certificate templates are available.'}</p>
+          {!isLoadingTemplates && saveError && (
+            <button
+              type="button"
+              onClick={() => setTemplateLoadAttempt(attempt => attempt + 1)}
+              className="rounded border border-white/30 px-3 py-2 font-semibold hover:bg-white/10"
+            >
+              Retry loading templates
+            </button>
+          )}
           <button type="button" onClick={onClose} className="rounded border border-white/30 px-3 py-2">Close</button>
         </div>
       </div>
@@ -226,7 +273,7 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
     barangay: selectedBarangay,
     municipality: 'Hinunangan',
     province: 'Southern Leyte',
-    association_name: associationName.trim() ? associationName : farmerName,
+    association_name: associationName,
     farmer_age_civil_status: farmerAgeCivilStatus,
     buyer_name: buyerName,
     buyer_address: destination,
@@ -271,14 +318,32 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
       setSaveError('Select an active barangay loaded from the database.');
       return;
     }
+    const selectedFarmerRecords = swineList.filter(
+      swine =>
+        swine.farmerName.trim().toLowerCase() === farmerName.trim().toLowerCase() &&
+        swine.barangay.toLowerCase() === selectedBarangay.toLowerCase()
+    );
+    if (!isEditMode && selectedFarmerRecords.length === 0) {
+      setSaveError('Select a registered farmer with swine records in the selected barangay before issuing.');
+      return;
+    }
+    const receiptRequired = Boolean(activeTemplate.receipt?.showReceiptBox);
+    const parsedAmountPaid = amountPaid === '' ? NaN : Number(amountPaid);
+    if (receiptRequired && (!orNumber.trim() || !Number.isFinite(parsedAmountPaid) || parsedAmountPaid < 0)) {
+      setSaveError('Enter the actual official receipt number and amount before issuing this certificate.');
+      return;
+    }
     setIsSaving(true);
     try {
       const certNumber = initialData?.certificateNo || initialData?.controlNumber || `HN-BRGY-${selectedBarangay.substring(0, 3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
       const certId = initialData?.id || `cert-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
       const renderedBody = replaceTemplatePlaceholders(activeTemplate.bodyTemplate || '', activeDataContext);
+      const recordedEarTags = selectedFarmerRecords
+        .map(swine => swine.pigIdTag?.trim() || swine.earTagNo?.trim() || '')
+        .filter(Boolean);
 
-      const firstPB = activeTemplate.signatories.find(s => s.position?.toLowerCase().includes('punong') || s.section === 'certified_by')?.name || 'HON. PUNONG BARANGAY';
-      const firstBBO = activeTemplate.signatories.find(s => s.position?.toLowerCase().includes('bbo') || s.section === 'noted_by')?.name || 'BBO / INSPECTOR';
+      const firstPB = activeTemplate.signatories.find(s => s.position?.toLowerCase().includes('punong') || s.section === 'certified_by')?.name || '';
+      const firstBBO = activeTemplate.signatories.find(s => s.position?.toLowerCase().includes('bbo') || s.section === 'noted_by')?.name || '';
 
       const certPayload: IssuedCertificate = {
         ...(initialData || {}),
@@ -290,24 +355,24 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
         templateId: activeTemplate.id,
         templateSnapshot: activeTemplate,
         renderedBody: renderedBody,
-        swineId: initialData?.swineId || 'swine-general',
-        earTagNo: initialData?.earTagNo || 'TAG-BULK',
+        swineId: initialData?.swineId || selectedFarmerRecords[0]?.id || '',
+        earTagNo: initialData?.earTagNo || recordedEarTags.join(', '),
         farmerName,
         farmerBarangay: selectedBarangay,
         issuingBarangay: selectedBarangay,
         buyerName,
         destinationBarangay: destination,
         destinationMunicipality: destination,
-        numberOfHeads: Number(numberOfHeads) || 1,
-        swineDescription: `${numberOfHeads} heads of pigs (${colorDescription || 'Assorted'})`,
+        numberOfHeads: Number(numberOfHeads),
+        swineDescription: `${numberOfHeads} heads of pigs${colorDescription ? ` (${colorDescription})` : ''}`,
         orNumber,
-        amountPaid: Number(amountPaid) || 100,
+        amountPaid: Number.isFinite(parsedAmountPaid) ? parsedAmountPaid : 0,
         issueDate,
         validUntil: initialData?.validUntil || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10),
         punongBarangay: firstPB,
         bboName: firstBBO,
         authorizedBy: firstPB,
-        status: initialData?.status || 'VALID',
+        status: initialData?.status || 'active',
         qrVerificationCode: `DA-HN-CERT|${certNumber}|${farmerName}|${selectedBarangay}|${numberOfHeads}HEADS|BUYER:${buyerName}|OR:${orNumber}|TPL:${activeTemplate.id}`,
         purpose: activeTemplate.documentType,
         destination,
@@ -478,7 +543,7 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
                       className="w-full bg-slate-50 border border-stone-300 rounded-xl p-2.5 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="">Select a registered raiser</option>
-                      {swineList.slice(0, 30).map(s => (
+                      {swineList.map(s => (
                         <option key={s.id} value={s.farmerName}>
                           {s.farmerName} — Brgy. {s.barangay} ({s.breed})
                         </option>
@@ -543,7 +608,7 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
                       type="number"
                       min="1"
                       value={numberOfHeads}
-                      onChange={e => setNumberOfHeads(parseInt(e.target.value) || 1)}
+                      onChange={e => setNumberOfHeads(parseInt(e.target.value, 10) || 0)}
                       className="w-full bg-white border border-stone-300 rounded-xl p-2.5 text-xs font-bold text-slate-900"
                     />
                   </div>

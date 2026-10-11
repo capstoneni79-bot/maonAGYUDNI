@@ -13,6 +13,7 @@ import {
 } from '../db/swine.ts';
 import { archiveCertificateByControlNumber, getAllCertificates, getCertificateByIdOrControlNumber, upsertCertificate } from '../db/certificates.ts';
 import { getCertificateTemplates, saveCertificateTemplates } from '../db/certificateTemplates.ts';
+import { filterCertificateTemplatesForUser } from '../utils/certificateTemplateFilters.ts';
 import { getAllUsers, getUserByAuthUserId, getUserByUsernameOrEmail, insertUserProfile, upsertUser, deleteUserByUid } from '../db/users.ts';
 import { getAllMessages, createMessage, markMessageRead, deleteMessageById } from '../db/messages.ts';
 import { getAllMedia, insertMedia, deleteMediaById } from '../db/media.ts';
@@ -28,7 +29,6 @@ import {
 } from '../db/registrySchema.ts';
 import { DEFAULT_SIDEBAR_THEME, INITIAL_REGISTRY_FORM_SCHEMA } from '../data/initialFormSchema.ts';
 import { INITIAL_LANDING_CONFIG } from '../data/initialData.ts';
-import { INITIAL_CERTIFICATE_TEMPLATES } from '../data/certificateTemplates.ts';
 import { DEFAULT_MASTER_CONFIG } from '../data/defaultMasterConfig.ts';
 import { INITIAL_LANDING_CMS_CONFIG } from '../data/initialLandingCmsData.ts';
 import { deleteLandingCmsAsset, uploadLandingCmsAsset } from './supabaseStorage.ts';
@@ -945,12 +945,26 @@ export function createApp() {
     }
     try {
       if (req.params.key === 'certificate_templates') {
-        return res.json({ success: true, data: await getCertificateTemplates() });
+        const templates = await getCertificateTemplates();
+        const visibleTemplates = filterCertificateTemplatesForUser(templates, user);
+        return res.json({ success: true, data: visibleTemplates });
       }
       let value = await getStoredSystemSetting(req.params.key);
       return res.json({ success: true, data: value ?? (sharedModuleArrayKeys.has(req.params.key) ? [] : {}) });
-    } catch {
-      return res.status(500).json({ success: false, error: 'Unable to load module data from database.' });
+    } catch (error) {
+      const code = typeof error === 'object' && error !== null && 'code' in error
+        ? String(error.code)
+        : undefined;
+      const message = error instanceof Error ? error.message : 'Unknown database error';
+      console.error('[module-data] load failed', {
+        key: req.params.key,
+        code,
+        message: message.slice(0, 500),
+      });
+      const errorMessage = req.params.key === 'certificate_templates'
+        ? 'Unable to load certificate templates. Verify that the Supabase database migrations have been applied, then retry.'
+        : 'Unable to load module data from database.';
+      return res.status(500).json({ success: false, error: errorMessage });
     }
   });
 
@@ -979,8 +993,20 @@ export function createApp() {
       const confirmed = await getStoredSystemSetting(req.params.key);
       if (confirmed === null) throw new Error('Database did not return the saved module data.');
       return res.json({ success: true, data: confirmed ?? saved });
-    } catch {
-      return res.status(500).json({ success: false, error: 'Unable to save module data to database.' });
+    } catch (error) {
+      const code = typeof error === 'object' && error !== null && 'code' in error
+        ? String(error.code)
+        : undefined;
+      const message = error instanceof Error ? error.message : 'Unknown database error';
+      console.error('[module-data] save failed', {
+        key: req.params.key,
+        code,
+        message: message.slice(0, 500),
+      });
+      const errorMessage = req.params.key === 'certificate_templates'
+        ? 'Unable to save certificate templates. Verify that the Supabase database migrations have been applied, then retry.'
+        : 'Unable to save module data to database.';
+      return res.status(500).json({ success: false, error: errorMessage });
     }
   });
 

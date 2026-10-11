@@ -114,7 +114,7 @@ export const BarangayCertificateView: React.FC<BarangayCertificateViewProps> = (
   const parseDate = (dateStr: string) => {
     try {
       const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return { day: '11th', month: 'September', year: '2026', full: dateStr };
+      if (isNaN(d.getTime())) return { day: '—', month: '—', year: '—', full: '—' };
       const day = d.getDate();
       const month = d.toLocaleDateString('en-US', { month: 'long' });
       const year = d.getFullYear();
@@ -126,13 +126,13 @@ export const BarangayCertificateView: React.FC<BarangayCertificateViewProps> = (
         full: `${month} ${day}, ${year}`,
       };
     } catch {
-      return { day: '11th', month: 'September', year: '2026', full: dateStr };
+      return { day: '—', month: '—', year: '—', full: '—' };
     }
   };
 
   const dateObj = parseDate(data.issueDate);
-  const brgyDisplay = (data.barangay || 'NAVA').toUpperCase();
-  const rawBrgy = data.barangay || 'Nava';
+  const brgyDisplay = (data.barangay || 'BARANGAY').toUpperCase();
+  const rawBrgy = data.barangay || '';
   const effectiveLogoSettings: CertificateLogoSettings = suppliedLogoSettings || {
     leftLogoType: 'barangay',
     leftBarangayName: rawBrgy,
@@ -372,7 +372,7 @@ export const BarangayCertificateView: React.FC<BarangayCertificateViewProps> = (
                 .{' '}
                 {data.priceDescription
                   ? data.priceDescription
-                  : `price ₱${data.amountPaid || '170'} per kilo.`}
+                  : data.amountPaid ? `price ₱${data.amountPaid} per kilo.` : '—'}
               </p>
               <p className="indent-8 uppercase">
                 THIS CERTIFICATION is being issued upon the request of the below-named for whatever
@@ -397,22 +397,22 @@ export const BarangayCertificateView: React.FC<BarangayCertificateViewProps> = (
               <p className="indent-8">
                 Ako si{' '}
                 <strong className="uppercase underline decoration-1 underline-offset-2">
-                  {data.associationName || data.farmerName}
+                  {data.associationName || '—'}
                 </strong>
-                , {data.farmerAgeCivilStatus || 'hingkod ang panu-igon'} nagpuyo sa Bgy. {rawBrgy},
+                , {data.farmerAgeCivilStatus || '—'} nagpuyo sa Bgy. {rawBrgy || '—'},
                 Hinunangan, Southern Leyte, nag BALIGYA og (
                 <strong>{data.numberOfHeads}</strong>) ka Baboy ngadto ni{' '}
                 <strong className="uppercase">{data.buyerName}</strong>, nga taga{' '}
                 <strong>{data.destination}</strong>, sa kantidad nga (
-                <strong>{data.priceDescription || 'P 150.00 / kilo'}</strong>).
+                <strong>{data.priceDescription || '—'}</strong>).
               </p>
               <p className="indent-8">
                 Kini nga mga Baboy nag edad og{' '}
-                <strong>{data.swineAge || 'TULO ( 3 ) ka Buwan'}</strong>,{' '}
+                <strong>{data.swineAge || '—'}</strong>,{' '}
                 <strong>{data.femaleCount || '—'}</strong> ka Bajie og{' '}
                 <strong>{data.maleCount || '—'}</strong> ka Buok, og ang mga kulor niini,{' '}
-                <strong>{data.colorDescription || 'Assorted'}</strong>, si{' '}
-                <strong className="uppercase">{data.associationName || data.farmerName}</strong>,
+                <strong>{data.colorDescription || '—'}</strong>, si{' '}
+                <strong className="uppercase">{data.associationName || '—'}</strong>,
                 ang legal nga tag-iya.
               </p>
               <p className="indent-8">
@@ -545,7 +545,7 @@ export const BarangayCertificateView: React.FC<BarangayCertificateViewProps> = (
 
                 <div>
                   <div className="pt-6 border-b-2 border-black w-4/5 mx-auto font-black text-xs sm:text-sm uppercase">
-                    {data.associationName || data.farmerName}
+                    {data.associationName || '—'}
                   </div>
                   <p className="text-[11px] sm:text-xs font-semibold text-stone-800 pt-1">
                     Nagbaligya/Tag-iya sa Baboy
@@ -637,7 +637,7 @@ export const BarangayCertificateView: React.FC<BarangayCertificateViewProps> = (
                 </p>
                 <p className="font-bold uppercase">Issued on: {dateObj.full}</p>
                 <p className="font-bold">
-                  Issued at: {data.issuedAt || `${rawBrgy}, Hinunangan, Southern Leyte`}
+                  Issued at: {data.issuedAt || (rawBrgy ? `${rawBrgy}, Hinunangan, Southern Leyte` : '—')}
                 </p>
               </>
             ) : (
@@ -648,14 +648,14 @@ export const BarangayCertificateView: React.FC<BarangayCertificateViewProps> = (
                 <p className="font-bold">Issued On : {dateObj.full}</p>
                 <p className="font-bold">
                   Issued At :{' '}
-                  {data.issuedAt || `Bgy. ${rawBrgy}, Hinunangan, So. Leyte.`}
+                  {data.issuedAt || (rawBrgy ? `Bgy. ${rawBrgy}, Hinunangan, So. Leyte.` : '—')}
                 </p>
               </>
             )}
           </div>
 
           <div className="text-[10px] text-stone-400 font-mono text-right">
-            <span>Doc Ref: {data.certificateNo || `CERT-${Date.now().toString().slice(-6)}`}</span>
+            <span>Doc Ref: {data.certificateNo || '—'}</span>
             <br />
             <span>LGU Hinunangan • DA Swine Registry System</span>
           </div>
