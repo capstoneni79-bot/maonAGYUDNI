@@ -14,6 +14,7 @@ import {
 import { archiveCertificateByControlNumber, getAllCertificates, getCertificateByIdOrControlNumber, upsertCertificate } from '../db/certificates.ts';
 import { getCertificateTemplates, saveCertificateTemplate } from '../db/certificateTemplates.ts';
 import { filterCertificateTemplatesForUser } from '../utils/certificateTemplateFilters.ts';
+import { formatCertificateTemplateDatabaseError } from '../utils/certificateTemplateDatabaseError.ts';
 import { getAllUsers, getUserByAuthUserId, getUserByUsernameOrEmail, insertUserProfile, upsertUser, deleteUserByUid } from '../db/users.ts';
 import { getAllMessages, createMessage, markMessageRead, deleteMessageById } from '../db/messages.ts';
 import { getAllMedia, insertMedia, deleteMediaById } from '../db/media.ts';
@@ -937,69 +938,6 @@ export function createApp() {
     'certificate_config',
   ]);
 
-  function certificateTemplateDatabaseError(error: unknown): { code?: string; message: string } {
-    const code = typeof error === 'object' && error !== null && 'code' in error
-      ? String(error.code)
-      : undefined;
-    const message = error instanceof Error ? error.message : 'Unknown database error';
-    if (code === '42P01') {
-      return {
-        code,
-        message: 'The certificate template table or a required related table is missing. Apply the application database migrations, including 008_certificate_templates_runtime_schema.sql.',
-      };
-    }
-    if (code === '42703') {
-      return {
-        code,
-        message: 'The certificate template database schema is outdated. Apply the unapplied database migrations, including 008_certificate_templates_runtime_schema.sql.',
-      };
-    }
-    if (code === '42501') {
-      return {
-        code,
-        message: 'The configured database role cannot read or update certificate templates. Check the server database role grants and existing template access policies.',
-      };
-    }
-    if (code === '28P01' || code === '28000') {
-      return {
-        code,
-        message: 'PostgreSQL rejected the configured server database credentials. Verify DATABASE_URL in the server environment without sharing its value.',
-      };
-    }
-    if (code === '3D000' || code === '3F000') {
-      return {
-        code,
-        message: 'The configured PostgreSQL database or schema does not exist. Verify the server database target and apply the application migrations.',
-      };
-    }
-    if (
-      code?.startsWith('08') ||
-      code === 'ECONNREFUSED' ||
-      code === 'ECONNRESET' ||
-      code === 'ETIMEDOUT' ||
-      code === 'ENOTFOUND'
-    ) {
-      return {
-        code,
-        message: 'The application could not reach its configured PostgreSQL database. Verify DATABASE_URL and database availability, then retry.',
-      };
-    }
-    if (
-      message.startsWith('Saved certificate template "') ||
-      message.startsWith('No database barangay matches') ||
-      message.startsWith('Each certificate template requires')
-    ) {
-      return { code, message };
-    }
-    if (message.startsWith('Focal Persons can only') || message.startsWith('Focal Persons cannot')) {
-      return { code: '403', message };
-    }
-    return {
-      code,
-      message: 'The certificate template database request failed. Check the server logs for its diagnostic code and details.',
-    };
-  }
-
   app.get('/api/module-data/:key', async (req, res) => {
     const user = getUserSecurityContext(req);
     if (!user.isAuthenticated || !sharedModuleDataKeys.has(req.params.key)) {
@@ -1014,7 +952,7 @@ export function createApp() {
       let value = await getStoredSystemSetting(req.params.key);
       return res.json({ success: true, data: value ?? (sharedModuleArrayKeys.has(req.params.key) ? [] : {}) });
     } catch (error) {
-      const failure = certificateTemplateDatabaseError(error);
+      const failure = formatCertificateTemplateDatabaseError(error);
       console.error('[module-data] load failed', {
         key: req.params.key,
         code: failure.code,
@@ -1066,7 +1004,7 @@ export function createApp() {
       if (confirmed === null) throw new Error('Database did not return the saved module data.');
       return res.json({ success: true, data: confirmed ?? saved });
     } catch (error) {
-      const failure = certificateTemplateDatabaseError(error);
+      const failure = formatCertificateTemplateDatabaseError(error);
       console.error('[module-data] save failed', {
         key: req.params.key,
         code: failure.code,

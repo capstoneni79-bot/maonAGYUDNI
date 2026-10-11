@@ -33,6 +33,9 @@ interface CreateCertificateModalProps {
   barangays: Barangay[];
   currentUser: UserAccount | null;
   onCertificateIssued: (cert: IssuedCertificate, printNow?: boolean) => void;
+  canCreateTemplate: boolean;
+  onCreateTemplate: () => void;
+  latestSavedTemplate?: CertificateTemplate | null;
   initialData?: any;
 }
 
@@ -43,6 +46,9 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
   barangays,
   currentUser,
   onCertificateIssued,
+  canCreateTemplate,
+  onCreateTemplate,
+  latestSavedTemplate,
   initialData,
 }) => {
   const [allTemplates, setAllTemplates] = useState<CertificateTemplate[]>([]);
@@ -63,6 +69,16 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
     return allTemplates.find(template => template.id === selectedTemplateId) ||
       (initialData?.templateSnapshot?.id === selectedTemplateId ? initialData.templateSnapshot as CertificateTemplate : null);
   }, [allTemplates, selectedTemplateId, initialData?.templateSnapshot]);
+
+  useEffect(() => {
+    if (!latestSavedTemplate) return;
+    setAllTemplates(previous => [
+      latestSavedTemplate,
+      ...previous.filter(template => template.id !== latestSavedTemplate.id),
+    ]);
+    setSelectedTemplateId(latestSavedTemplate.id);
+    setSaveError('');
+  }, [latestSavedTemplate]);
 
   const initialSwineRecord = swineList.find(s => s.barangay === selectedBarangay) || swineList[0];
   const initialFarmerSwineCount = initialSwineRecord
@@ -251,6 +267,15 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
       <div role="alert" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4 text-white">
         <div className="max-w-md space-y-4 rounded-lg bg-slate-900 p-6">
           <p>{isLoadingTemplates ? 'Loading certificate templates from database...' : saveError || 'No certificate templates are available.'}</p>
+          {!isLoadingTemplates && canCreateTemplate && (
+            <button
+              type="button"
+              onClick={onCreateTemplate}
+              className="rounded bg-emerald-600 px-3 py-2 font-semibold hover:bg-emerald-500"
+            >
+              Create Certificate Template
+            </button>
+          )}
           {!isLoadingTemplates && saveError && (
             <button
               type="button"
@@ -470,6 +495,17 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
                     {allTemplates.length} templates available
                   </span>
                 </div>
+                {canCreateTemplate && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={onCreateTemplate}
+                      className="rounded-lg border border-emerald-700 px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-50"
+                    >
+                      Create reusable template
+                    </button>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {allTemplates.map(tpl => {

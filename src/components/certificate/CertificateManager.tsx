@@ -243,6 +243,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
   selectedSwineInitial,
 }) => {
   const isUserAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
+  const canManageTemplates = isUserAdmin || currentUser?.role === 'focal';
   const userAssignedBarangay = currentUser?.assignedBarangay || '';
   const userBarangayId = currentUser?.barangay_id || '';
 
@@ -355,6 +356,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
   }, []);
   const [isTemplateEditorOpen, setIsTemplateEditorOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<CertificateTemplate | undefined>(undefined);
+  const [latestSavedTemplate, setLatestSavedTemplate] = useState<CertificateTemplate | null>(null);
 
   useEffect(() => {
     void loadTemplates();
@@ -1254,7 +1256,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                   <button type="button" disabled={!canManageActiveTemplate || isLoadingTemplates} onClick={event => { setEditingTemplate(activeTemplate); setIsTemplateEditorOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50">
                     <Sliders className="h-4 w-4 text-stone-500" /> Customize template & logos
                   </button>
-                  <button type="button" disabled={isLoadingTemplates} onClick={event => { setEditingTemplate(undefined); setIsTemplateEditorOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50">
+                  <button type="button" disabled={!canManageTemplates || isLoadingTemplates} onClick={event => { setEditingTemplate(undefined); setIsTemplateEditorOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50">
                     <Sparkles className="h-4 w-4 text-stone-500" /> Create new template
                   </button>
                 </div>
@@ -2269,6 +2271,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
             const persisted = await moduleDataApi.save<CertificateTemplate>('certificate_templates', savedTemplate);
             setTemplates(previous => [persisted, ...previous.filter(template => template.id !== persisted.id)]);
             setSelectedTemplateId(persisted.id);
+            setLatestSavedTemplate(persisted);
             setIsTemplateEditorOpen(false);
             setExportNotice(`Template "${persisted.name}" saved successfully!`);
             setTimeout(() => setExportNotice(null), 3500);
@@ -2297,6 +2300,12 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
         barangays={barangays}
         currentUser={currentUser}
         onCertificateIssued={handleCertificateIssuedFromModal}
+        canCreateTemplate={canManageTemplates}
+        onCreateTemplate={() => {
+          setEditingTemplate(undefined);
+          setIsTemplateEditorOpen(true);
+        }}
+        latestSavedTemplate={latestSavedTemplate}
         initialData={certificateToEdit || {
           barangay: activeCertData.barangay,
           farmerName: activeCertData.farmerName,

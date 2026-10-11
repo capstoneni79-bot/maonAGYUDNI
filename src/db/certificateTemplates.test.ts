@@ -1,4 +1,5 @@
 import { strict as assert } from 'node:assert';
+import { readFileSync } from 'node:fs';
 import type { PoolClient } from 'pg';
 import type { CertificateTemplate } from '../types';
 
@@ -63,13 +64,13 @@ const fullTemplate: CertificateTemplate = {
 };
 
 let rows = [legacyRow];
-let failTemplateQuery = false;
+let templateQueryError: NodeJS.ErrnoException | null = null;
 const queries: string[] = [];
 const client = {
   async query(text: string, values: unknown[] = []) {
     queries.push(text);
     if (text.includes('FROM public.certificate_templates ct')) {
-      if (failTemplateQuery) throw Object.assign(new Error('relation does not exist'), { code: '42P01' });
+      if (templateQueryError) throw templateQueryError;
       return { rows };
     }
     if (text.includes('SELECT id FROM public.barangays')) {
@@ -127,6 +128,13 @@ const savedTemplate = await saveCertificateTemplate(fullTemplate, {
 });
 assert.equal(savedTemplate.id, fullTemplate.id, 'returns the database-confirmed template');
 assert.equal(savedTemplate.bodyTemplate, fullTemplate.bodyTemplate, 'returns the persisted layout body');
+const updatedTemplate = await saveCertificateTemplate({ ...fullTemplate, name: 'Updated certification' }, {
+  role: 'admin',
+  assignedBarangay: '',
+  isAdmin: true,
+});
+assert.equal(updatedTemplate.id, fullTemplate.id, 'updates retain the persistent template code');
+assert.equal(updatedTemplate.name, 'Updated certification', 'updates return the persisted template values');
 assert.equal(
   queries.some(query => query.includes('UPDATE public.certificate_templates SET is_active')),
   false,
@@ -158,11 +166,22 @@ await assert.rejects(
   /shared template or a template belonging to another barangay/,
   'rejects a focal person editing a shared template',
 );
-failTemplateQuery = true;
+rows = [];
+assert.deepEqual(await getCertificateTemplates(), [], 'returns a genuine empty list when the query succeeds with no rows');
+
+const schemaDefinition = [
+  readFileSync(new URL('../../supabase/migrations/001_create_full_registry_schema.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../supabase/migrations/008_certificate_templates_runtime_schema.sql', import.meta.url), 'utf8'),
+].join('\n');
+for (const column of ['code', 'name', 'template_body', 'css_styles', 'template_data', 'is_active', 'is_archived', 'created_at', 'updated_at']) {
+  assert.match(schemaDefinition, new RegExp(`\\b${column}\\b`), `migrations define queried template column ${column}`);
+}
+
+templateQueryError = Object.assign(new Error('column ct.template_data does not exist'), { code: '42703' });
 await assert.rejects(
   getCertificateTemplates(),
-  error => (error as NodeJS.ErrnoException).code === '42P01',
-  'propagates actual database errors instead of returning an empty template list',
+  error => (error as NodeJS.ErrnoException).code === '42703' && /ct\.template_data/.test((error as Error).message),
+  'propagates the exact missing-column error instead of returning an empty list',
 );
 
 console.log('All certificate template database workflow tests passed.');
