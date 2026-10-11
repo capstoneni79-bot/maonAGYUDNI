@@ -938,6 +938,66 @@ export function createApp() {
     'certificate_templates',
   ]);
 
+  function certificateTemplateDatabaseError(error: unknown): { code?: string; message: string } {
+    const code = typeof error === 'object' && error !== null && 'code' in error
+      ? String(error.code)
+      : undefined;
+    const message = error instanceof Error ? error.message : 'Unknown database error';
+    if (code === '42P01') {
+      return {
+        code,
+        message: 'The certificate template table or a required related table is missing. Apply the application database migrations, including 008_certificate_templates_runtime_schema.sql.',
+      };
+    }
+    if (code === '42703') {
+      return {
+        code,
+        message: 'The certificate template database schema is outdated. Apply the unapplied database migrations, including 008_certificate_templates_runtime_schema.sql.',
+      };
+    }
+    if (code === '42501') {
+      return {
+        code,
+        message: 'The configured database role cannot read or update certificate templates. Check the server database role grants and existing template access policies.',
+      };
+    }
+    if (code === '28P01' || code === '28000') {
+      return {
+        code,
+        message: 'PostgreSQL rejected the configured server database credentials. Verify DATABASE_URL in the server environment without sharing its value.',
+      };
+    }
+    if (code === '3D000' || code === '3F000') {
+      return {
+        code,
+        message: 'The configured PostgreSQL database or schema does not exist. Verify the server database target and apply the application migrations.',
+      };
+    }
+    if (
+      code?.startsWith('08') ||
+      code === 'ECONNREFUSED' ||
+      code === 'ECONNRESET' ||
+      code === 'ETIMEDOUT' ||
+      code === 'ENOTFOUND'
+    ) {
+      return {
+        code,
+        message: 'The application could not reach its configured PostgreSQL database. Verify DATABASE_URL and database availability, then retry.',
+      };
+    }
+    if (
+      message.startsWith('Saved certificate template "') ||
+      message.startsWith('No database barangay matches') ||
+      message.startsWith('Each certificate template requires')
+    ) {
+      return { code, message };
+    }
+    return {
+      code,
+      message: 'The certificate template database request failed. Check the server logs for its diagnostic code and details.',
+    };
+  }
+
   app.get('/api/module-data/:key', async (req, res) => {
     const user = getUserSecurityContext(req);
     if (!user.isAuthenticated || !sharedModuleDataKeys.has(req.params.key)) {
@@ -952,19 +1012,19 @@ export function createApp() {
       let value = await getStoredSystemSetting(req.params.key);
       return res.json({ success: true, data: value ?? (sharedModuleArrayKeys.has(req.params.key) ? [] : {}) });
     } catch (error) {
-      const code = typeof error === 'object' && error !== null && 'code' in error
-        ? String(error.code)
-        : undefined;
-      const message = error instanceof Error ? error.message : 'Unknown database error';
+      const failure = certificateTemplateDatabaseError(error);
       console.error('[module-data] load failed', {
         key: req.params.key,
-        code,
-        message: message.slice(0, 500),
+        code: failure.code,
+        detail: error instanceof Error ? error.message.slice(0, 500) : 'Unknown database error',
       });
-      const errorMessage = req.params.key === 'certificate_templates'
-        ? 'Unable to load certificate templates. Verify that the Supabase database migrations have been applied, then retry.'
-        : 'Unable to load module data from database.';
-      return res.status(500).json({ success: false, error: errorMessage });
+      return res.status(500).json({
+        success: false,
+        error: req.params.key === 'certificate_templates'
+          ? failure.message
+          : 'Unable to load module data from database.',
+        ...(req.params.key === 'certificate_templates' && failure.code ? { diagnosticCode: failure.code } : {}),
+      });
     }
   });
 
@@ -994,19 +1054,19 @@ export function createApp() {
       if (confirmed === null) throw new Error('Database did not return the saved module data.');
       return res.json({ success: true, data: confirmed ?? saved });
     } catch (error) {
-      const code = typeof error === 'object' && error !== null && 'code' in error
-        ? String(error.code)
-        : undefined;
-      const message = error instanceof Error ? error.message : 'Unknown database error';
+      const failure = certificateTemplateDatabaseError(error);
       console.error('[module-data] save failed', {
         key: req.params.key,
-        code,
-        message: message.slice(0, 500),
+        code: failure.code,
+        detail: error instanceof Error ? error.message.slice(0, 500) : 'Unknown database error',
       });
-      const errorMessage = req.params.key === 'certificate_templates'
-        ? 'Unable to save certificate templates. Verify that the Supabase database migrations have been applied, then retry.'
-        : 'Unable to save module data to database.';
-      return res.status(500).json({ success: false, error: errorMessage });
+      return res.status(500).json({
+        success: false,
+        error: req.params.key === 'certificate_templates'
+          ? `Unable to save certificate templates. ${failure.message}`
+          : 'Unable to save module data to database.',
+        ...(req.params.key === 'certificate_templates' && failure.code ? { diagnosticCode: failure.code } : {}),
+      });
     }
   });
 

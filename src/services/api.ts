@@ -313,7 +313,8 @@ export const moduleDataApi = {
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data?.success) {
-      throw new Error(data?.error || 'Unable to load shared module data from database.');
+      const message = data?.error || 'Unable to load shared module data from database.';
+      throw new Error(data?.diagnosticCode ? `${message} (Database code: ${data.diagnosticCode})` : message);
     }
     return data.data as T;
   },
@@ -326,7 +327,8 @@ export const moduleDataApi = {
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data?.success) {
-      throw new Error(data?.error || 'Unable to save shared module data to database.');
+      const message = data?.error || 'Unable to save shared module data to database.';
+      throw new Error(data?.diagnosticCode ? `${message} (Database code: ${data.diagnosticCode})` : message);
     }
     return data.data as T;
   },
