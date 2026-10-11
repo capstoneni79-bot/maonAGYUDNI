@@ -358,7 +358,16 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
 
   useEffect(() => {
     void loadTemplates();
-  }, [loadTemplates]);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void loadTemplates();
+    };
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [loadTemplates, currentUser?.id]);
 
   // Template Search & Filters in Manager
   const [tplSearchQuery, setTplSearchQuery] = useState('');
@@ -387,6 +396,12 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
     if (archivedTemplateOverride?.id === selectedTemplateId) return archivedTemplateOverride;
     return templates.find(t => t.id === selectedTemplateId);
   }, [archivedTemplateOverride, templates, selectedTemplateId]);
+  const canManageActiveTemplate = Boolean(activeTemplate && (
+    isUserAdmin || (
+      userAssignedBarangay &&
+      activeTemplate.barangay.trim().toLocaleLowerCase() === userAssignedBarangay.trim().toLocaleLowerCase()
+    )
+  ));
 
   // Create Certificate Modal State
   const [isCreateCertModalOpen, setIsCreateCertModalOpen] = useState(false);
@@ -1236,10 +1251,10 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                   Template actions <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
                 </summary>
                 <div className="absolute right-0 z-40 mt-1 w-[min(16rem,calc(100vw-2rem))] rounded-xl border border-stone-200 bg-white p-1.5 shadow-xl">
-                  <button type="button" disabled={!activeTemplate || isLoadingTemplates || Boolean(templateLoadError)} onClick={event => { setEditingTemplate(activeTemplate); setIsTemplateEditorOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50">
+                  <button type="button" disabled={!canManageActiveTemplate || isLoadingTemplates} onClick={event => { setEditingTemplate(activeTemplate); setIsTemplateEditorOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50">
                     <Sliders className="h-4 w-4 text-stone-500" /> Customize template & logos
                   </button>
-                  <button type="button" disabled={isLoadingTemplates || Boolean(templateLoadError)} onClick={event => { setEditingTemplate(undefined); setIsTemplateEditorOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50">
+                  <button type="button" disabled={isLoadingTemplates} onClick={event => { setEditingTemplate(undefined); setIsTemplateEditorOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50">
                     <Sparkles className="h-4 w-4 text-stone-500" /> Create new template
                   </button>
                 </div>
@@ -2247,18 +2262,18 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
       {isTemplateEditorOpen && (
         <CertificateTemplateEditor
           initialTemplate={editingTemplate}
+          userRole={currentUser?.role}
+          assignedBarangay={userAssignedBarangay}
           onClose={() => setIsTemplateEditorOpen(false)}
           onSave={async savedTemplate => {
-            if (isLoadingTemplates || templateLoadError) {
-              throw new Error('Reload the saved template list before creating or updating a template.');
-            }
-            const updated = [savedTemplate, ...templates.filter(template => template.id !== savedTemplate.id)];
-            const persisted = await moduleDataApi.save('certificate_templates', updated);
-            setTemplates(persisted);
-            setSelectedTemplateId(savedTemplate.id);
+            const persisted = await moduleDataApi.save<CertificateTemplate>('certificate_templates', savedTemplate);
+            setTemplates(previous => [persisted, ...previous.filter(template => template.id !== persisted.id)]);
+            setSelectedTemplateId(persisted.id);
             setIsTemplateEditorOpen(false);
-            setExportNotice(`Template "${savedTemplate.name}" saved successfully!`);
+            setExportNotice(`Template "${persisted.name}" saved successfully!`);
             setTimeout(() => setExportNotice(null), 3500);
+            void loadTemplates();
+            return persisted;
           }}
         />
       )}

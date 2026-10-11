@@ -12,7 +12,7 @@ import {
   getNextAuthoritativePigIdTag,
 } from '../db/swine.ts';
 import { archiveCertificateByControlNumber, getAllCertificates, getCertificateByIdOrControlNumber, upsertCertificate } from '../db/certificates.ts';
-import { getCertificateTemplates, saveCertificateTemplates } from '../db/certificateTemplates.ts';
+import { getCertificateTemplates, saveCertificateTemplate } from '../db/certificateTemplates.ts';
 import { filterCertificateTemplatesForUser } from '../utils/certificateTemplateFilters.ts';
 import { getAllUsers, getUserByAuthUserId, getUserByUsernameOrEmail, insertUserProfile, upsertUser, deleteUserByUid } from '../db/users.ts';
 import { getAllMessages, createMessage, markMessageRead, deleteMessageById } from '../db/messages.ts';
@@ -935,7 +935,6 @@ export function createApp() {
   const adminOnlyModuleDataKeys = new Set([
     'official_reports_config',
     'certificate_config',
-    'certificate_templates',
   ]);
 
   function certificateTemplateDatabaseError(error: unknown): { code?: string; message: string } {
@@ -992,6 +991,9 @@ export function createApp() {
     ) {
       return { code, message };
     }
+    if (message.startsWith('Focal Persons can only') || message.startsWith('Focal Persons cannot')) {
+      return { code: '403', message };
+    }
     return {
       code,
       message: 'The certificate template database request failed. Check the server logs for its diagnostic code and details.',
@@ -1031,13 +1033,19 @@ export function createApp() {
   app.put('/api/module-data/:key', async (req, res) => {
     const user = getUserSecurityContext(req);
     if (!sharedModuleDataKeys.has(req.params.key) ||
-      (adminOnlyModuleDataKeys.has(req.params.key) ? !user.isAdmin : !user.isAuthenticated)) {
+      (req.params.key === 'certificate_templates'
+        ? !(user.isAdmin || user.isFocal)
+        : adminOnlyModuleDataKeys.has(req.params.key) ? !user.isAdmin : !user.isAuthenticated)) {
       return res.status(403).json({ success: false, error: 'You do not have permission to update this resource.' });
     }
     if (req.body?.data === undefined) {
       return res.status(400).json({ success: false, error: 'Module data is required.' });
     }
-    if (sharedModuleArrayKeys.has(req.params.key) && !Array.isArray(req.body.data)) {
+    if (req.params.key === 'certificate_templates' &&
+      (typeof req.body.data !== 'object' || req.body.data === null || Array.isArray(req.body.data))) {
+      return res.status(400).json({ success: false, error: 'A single certificate template is required.' });
+    }
+    if (sharedModuleArrayKeys.has(req.params.key) && req.params.key !== 'certificate_templates' && !Array.isArray(req.body.data)) {
       return res.status(400).json({ success: false, error: 'This module data must be an array.' });
     }
     if (!sharedModuleArrayKeys.has(req.params.key) && (typeof req.body.data !== 'object' || req.body.data === null || Array.isArray(req.body.data))) {
@@ -1045,7 +1053,11 @@ export function createApp() {
     }
     try {
       const saved = req.params.key === 'certificate_templates'
-        ? await saveCertificateTemplates(req.body.data)
+        ? await saveCertificateTemplate(req.body.data, {
+          role: user.role,
+          assignedBarangay: user.assignedBarangay,
+          isAdmin: user.isAdmin,
+        })
         : await setSystemSetting(req.params.key, req.body.data);
       if (req.params.key === 'certificate_templates') {
         return res.json({ success: true, data: saved });
@@ -1060,7 +1072,7 @@ export function createApp() {
         code: failure.code,
         detail: error instanceof Error ? error.message.slice(0, 500) : 'Unknown database error',
       });
-      return res.status(500).json({
+      return res.status(failure.code === '403' ? 403 : 500).json({
         success: false,
         error: req.params.key === 'certificate_templates'
           ? `Unable to save certificate templates. ${failure.message}`

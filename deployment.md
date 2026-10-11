@@ -27,9 +27,9 @@ The goal is simple: push the code to GitHub, connect that repo to Vercel, add th
 3. Choose a project name, region, and database password
 4. Wait for Supabase to finish provisioning
 5. In the left menu, open SQL Editor
-6. Apply every SQL file in `supabase/migrations` in ascending filename order, from `001` through `008`, waiting for each file to finish before running the next.
+6. Apply every SQL file in `supabase/migrations` in ascending filename order, from `001` through `009`, waiting for each file to finish before running the next.
 
-The migration sequence creates the application schema, authentication and row-level security policies, and the certificate-template table/configuration used by Print Official Reports. The legacy root-level [supabase_schema.sql](supabase_schema.sql) is not a replacement for these migrations. On an existing project, apply any unapplied migrations in order.
+The migration sequence creates the application schema, authentication and row-level security policies, and the certificate-template table/configuration used by Print Official Reports. Migration `009_scoped_certificate_template_management.sql` adds focal-person insert/update policies restricted to their assigned barangay; it does not grant access to shared/global or other-barangay template writes. Apply it to the same Supabase project reported by `/api/health` using the Supabase SQL Editor or CLI. On an existing project, apply any unapplied migrations in order and verify the query succeeds before deploying the application change. The legacy root-level [supabase_schema.sql](supabase_schema.sql) is not a replacement for these migrations.
 
 ---
 

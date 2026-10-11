@@ -52,7 +52,7 @@ export interface BarangayCertificateViewProps {
   data: CertificateData;
   logoSettings?: CertificateLogoSettings;
   template?: CertificateTemplate;
-  containerRef?: React.RefObject<HTMLDivElement>;
+  containerRef?: React.RefObject<HTMLDivElement | null>;
   isPrintMode?: boolean;
 }
 

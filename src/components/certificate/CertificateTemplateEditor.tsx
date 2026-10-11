@@ -43,20 +43,22 @@ import { filterCertificateTemplates } from '../../utils/certificateTemplateFilte
 
 interface CertificateTemplateEditorProps {
   initialTemplate?: CertificateTemplate;
-  onSave: (savedTemplate: CertificateTemplate) => Promise<void>;
+  onSave: (savedTemplate: CertificateTemplate) => Promise<CertificateTemplate | void>;
   onClose?: () => void;
   isModal?: boolean;
+  userRole?: string;
+  assignedBarangay?: string;
 }
 
 const createTemplateId = () =>
   `tpl-custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-const createBlankTemplate = (): CertificateTemplate => {
+const createBlankTemplate = (barangay = 'All'): CertificateTemplate => {
   const now = new Date().toISOString();
   return {
     id: createTemplateId(),
     name: 'New certificate template',
-    barangay: 'All',
+    barangay,
     documentType: '',
     documentTitle: '',
     titleFont: 'serif_bold',
@@ -92,6 +94,8 @@ export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps>
   onSave,
   onClose,
   isModal = false,
+  userRole,
+  assignedBarangay = '',
 }) => {
   // Load saved templates from the shared database for search and selection.
   const [availableTemplates, setAvailableTemplates] = useState<CertificateTemplate[]>(() => {
@@ -102,7 +106,8 @@ export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps>
   const [isSaving, setIsSaving] = useState(false);
 
   // Selected template state
-  const defaultTpl = initialTemplate || createBlankTemplate();
+  const isFocalPerson = userRole === 'focal';
+  const defaultTpl = initialTemplate || createBlankTemplate(isFocalPerson ? assignedBarangay : 'All');
   const [template, setTemplate] = useState<CertificateTemplate>(() => JSON.parse(JSON.stringify(defaultTpl)));
   const [activeSection, setActiveSection] = useState<
     'info' | 'header_logos' | 'body' | 'signatories' | 'watermark' | 'receipt'
@@ -192,10 +197,11 @@ export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps>
 
   // Create a brand new template
   const handleCreateNewTemplate = () => {
+    const createBarangay = isFocalPerson ? assignedBarangay : template.barangay || 'All';
     const newTpl: CertificateTemplate = {
       id: `tpl-custom-${Date.now()}`,
-      name: `Custom Certificate Format (${template.barangay || 'General'})`,
-      barangay: template.barangay || 'All',
+      name: `Custom Certificate Format (${createBarangay || 'General'})`,
+      barangay: createBarangay,
       documentType: 'Barangay Certification',
       documentTitle: 'BARANGAY CERTIFICATION',
       titleFont: 'serif_bold',
@@ -206,7 +212,7 @@ export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps>
         countryText: 'Republic of the Philippines',
         provinceText: 'PROVINCE OF SOUTHERN LEYTE',
         municipalityText: 'Municipality of Hinunangan',
-        barangayText: `BARANGAY ${(template.barangay === 'All' ? '—' : template.barangay).toUpperCase()}`,
+        barangayText: `BARANGAY ${(createBarangay === 'All' ? '—' : createBarangay).toUpperCase()}`,
         officeTitle: 'OFFICE OF THE PUNONG BARANGAY',
         contactEmail: '',
         borderStyle: 'single',
@@ -216,7 +222,7 @@ export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps>
           id: `logo-1-${Date.now()}`,
           type: 'barangay',
           position: 'left',
-          barangayName: template.barangay === 'All' ? '' : template.barangay,
+          barangayName: createBarangay === 'All' ? '' : createBarangay,
           widthPx: 70,
           heightPx: 70,
           order: 1,
@@ -474,14 +480,24 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
       setSaveNotice('Enter a template name before saving.');
       return;
     }
+    if (!template.documentType.trim()) {
+      setSaveNotice('Select a certificate type before saving.');
+      return;
+    }
+    if (!template.bodyTemplate.trim()) {
+      setSaveNotice('Enter a certificate body before saving.');
+      return;
+    }
     setIsSaving(true);
     const updated = {
       ...template,
       updatedAt: new Date().toISOString(),
     };
     try {
-      await onSave(updated);
-      setAvailableTemplates(previous => [updated, ...previous.filter(item => item.id !== updated.id)]);
+      const persisted = await onSave(updated);
+      const confirmedTemplate = persisted || updated;
+      setTemplate(JSON.parse(JSON.stringify(confirmedTemplate)));
+      setAvailableTemplates(previous => [confirmedTemplate, ...previous.filter(item => item.id !== confirmedTemplate.id)]);
       setSaveNotice('Template saved successfully.');
       setTimeout(() => setSaveNotice(null), 3000);
     } catch (error) {
@@ -755,15 +771,16 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
                   <label className="block text-xs font-bold text-stone-700 mb-1">Barangay Scope</label>
                   <select
                     value={template.barangay}
+                    disabled={isFocalPerson}
                     onChange={e => setTemplate({ ...template, barangay: e.target.value })}
                     className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="All">All Barangays (Universal)</option>
-                    {HINUNANGAN_BARANGAYS.map(b => (
-                      <option key={b.code} value={b.name}>
-                        {b.name}
-                      </option>
-                    ))}
+                    {!isFocalPerson && <option value="All">All Barangays (Universal)</option>}
+                    {isFocalPerson
+                      ? <option value={assignedBarangay}>{assignedBarangay}</option>
+                      : HINUNANGAN_BARANGAYS.map(b => (
+                        <option key={b.code} value={b.name}>{b.name}</option>
+                      ))}
                   </select>
                 </div>
 

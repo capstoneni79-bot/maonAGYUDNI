@@ -95,13 +95,13 @@ assert.deepEqual(
 
 const nameScopedFocalTemplates = filterCertificateTemplatesForUser([ambacon, tuburan], {
   isAdmin: false,
-  barangayId: '',
+  barangayId: 'brgy-ambacon',
   assignedBarangay: 'Ambacon',
 });
 assert.deepEqual(
   nameScopedFocalTemplates.map(template => template.id),
   ['ambacon'],
-  'assigned barangay name scopes templates when legacy user profiles have no barangay id',
+  'assigned barangay name scopes templates when the profile and database use different barangay ID formats',
 );
 
 assert.equal(

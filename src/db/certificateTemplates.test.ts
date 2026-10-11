@@ -4,7 +4,7 @@ import type { CertificateTemplate } from '../types';
 
 process.env.DATABASE_URL = 'postgresql://test:test@127.0.0.1:5432/test';
 
-const [{ pool }, { getCertificateTemplates, saveCertificateTemplates }] = await Promise.all([
+const [{ pool }, { getCertificateTemplates, saveCertificateTemplate }] = await Promise.all([
   import('./index'),
   import('./certificateTemplates'),
 ]);
@@ -75,6 +75,9 @@ const client = {
     if (text.includes('SELECT id FROM public.barangays')) {
       return { rows: [{ id: 'barangay-ambacon' }] };
     }
+    if (text.includes('SELECT barangay_id FROM public.certificate_templates')) {
+      return { rows: rows.filter(row => row.code === values[0]).map(row => ({ barangay_id: row.barangay_id })) };
+    }
     if (text.includes('INSERT INTO public.certificate_templates')) {
       const [barangayId, code, name, body, templateData, isActive] = values as [
         string | null,
@@ -117,15 +120,44 @@ assert.equal(loadedLegacy[0].barangay, legacyRow.barangay_name, 'uses the linked
 assert.equal(loadedLegacy[0].signatories[0].name, 'Authorized Officer', 'loads legacy relational signatories');
 assert.equal(loadedLegacy[0].documentTitle, legacyRow.name, 'provides a usable title for legacy rows');
 
-const savedTemplates = await saveCertificateTemplates([fullTemplate]);
-assert.equal(savedTemplates.some(template => template.id === fullTemplate.id), true, 'returns the database-confirmed new template');
-assert.equal(savedTemplates.find(template => template.id === fullTemplate.id)?.bodyTemplate, fullTemplate.bodyTemplate, 'returns the persisted layout body');
+const savedTemplate = await saveCertificateTemplate(fullTemplate, {
+  role: 'admin',
+  assignedBarangay: '',
+  isAdmin: true,
+});
+assert.equal(savedTemplate.id, fullTemplate.id, 'returns the database-confirmed template');
+assert.equal(savedTemplate.bodyTemplate, fullTemplate.bodyTemplate, 'returns the persisted layout body');
 assert.equal(
   queries.some(query => query.includes('UPDATE public.certificate_templates SET is_active')),
-  true,
-  'preserves the existing deactivation behavior for templates omitted from the save payload',
+  false,
+  'saving one template does not deactivate templates omitted from a client payload',
 );
 
+const focalTemplate = { ...fullTemplate, id: 'focal-template', barangay: 'Ambacon' };
+const savedFocalTemplate = await saveCertificateTemplate(focalTemplate, {
+  role: 'focal',
+  assignedBarangay: 'Ambacon',
+  isAdmin: false,
+});
+assert.equal(savedFocalTemplate.id, focalTemplate.id, 'allows an assigned focal person to save a barangay template');
+await assert.rejects(
+  saveCertificateTemplate({ ...focalTemplate, id: 'outside-template', barangay: 'Bugho' }, {
+    role: 'focal',
+    assignedBarangay: 'Ambacon',
+    isAdmin: false,
+  }),
+  /assigned barangay/,
+  'rejects a focal person creating a template for another barangay',
+);
+await assert.rejects(
+  saveCertificateTemplate({ ...fullTemplate, id: 'new-template-id', barangay: 'Ambacon' }, {
+    role: 'focal',
+    assignedBarangay: 'Ambacon',
+    isAdmin: false,
+  }),
+  /shared template or a template belonging to another barangay/,
+  'rejects a focal person editing a shared template',
+);
 failTemplateQuery = true;
 await assert.rejects(
   getCertificateTemplates(),

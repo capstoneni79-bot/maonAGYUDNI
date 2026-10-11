@@ -16,7 +16,7 @@ import { replaceTemplatePlaceholders, TemplateDataContext } from '../../utils/te
 interface DynamicCertificateViewProps {
   template: CertificateTemplate;
   data: TemplateDataContext;
-  containerRef?: React.RefObject<HTMLDivElement>;
+  containerRef?: React.RefObject<HTMLDivElement | null>;
   isPrintMode?: boolean;
   previewOnly?: boolean;
 }

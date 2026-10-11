@@ -48,9 +48,7 @@ export function filterCertificateTemplatesForUser(
   const assignedBarangay = normalize(user.assignedBarangay);
   return templates.filter(template => {
     const scope = normalize(template.barangay);
-    if (template.barangayId && user.barangayId) {
-      return template.barangayId === user.barangayId;
-    }
+    if (template.barangayId && user.barangayId === template.barangayId) return true;
     if (template.barangayId) {
       return Boolean(assignedBarangay && scope === assignedBarangay);
     }

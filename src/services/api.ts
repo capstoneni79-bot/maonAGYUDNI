@@ -309,7 +309,7 @@ export const accountsApi = {
 export const moduleDataApi = {
   async get<T>(key: string): Promise<T> {
     const res = await fetch(`/api/module-data/${encodeURIComponent(key)}`, {
-      headers: getAuthHeaders(),
+      headers: await getFreshAuthHeaders(),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data?.success) {
@@ -322,7 +322,7 @@ export const moduleDataApi = {
   async save<T>(key: string, value: T): Promise<T> {
     const res = await fetch(`/api/module-data/${encodeURIComponent(key)}`, {
       method: 'PUT',
-      headers: getAuthHeaders(),
+      headers: await getFreshAuthHeaders(),
       body: JSON.stringify({ data: value }),
     });
     const data = await res.json().catch(() => null);

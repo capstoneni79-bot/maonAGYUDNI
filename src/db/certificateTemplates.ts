@@ -110,7 +110,7 @@ const mapTemplate = (row: CertificateTemplateRow): CertificateTemplate => {
       ...receipt,
     } as CertificateTemplate['receipt'],
     isActive: row.is_active,
-    createdAt: typeof templateData.createdAt === 'string' ? templateData.createdAt : createdAt,
+    createdAt,
     updatedAt,
   } as CertificateTemplate;
 };
@@ -159,7 +159,12 @@ export async function getCertificateTemplates(): Promise<CertificateTemplate[]> 
 
     await client.query('BEGIN');
     for (const template of templates) {
-      await upsertTemplate(client, template);
+      await upsertTemplate(client, {
+        ...template,
+        documentType: typeof template.documentType === 'string' && template.documentType.trim()
+          ? template.documentType
+          : 'Barangay Certification',
+      }, { role: 'super_admin', assignedBarangay: '', isAdmin: true });
     }
     await client.query("DELETE FROM public.system_settings WHERE key = 'certificate_templates'");
     const migratedTemplates = await readStoredTemplates(client);
@@ -173,12 +178,33 @@ export async function getCertificateTemplates(): Promise<CertificateTemplate[]> 
   }
 }
 
-async function upsertTemplate(client: PoolClient, template: CertificateTemplate): Promise<void> {
+export interface CertificateTemplateWriteScope {
+  role: string;
+  assignedBarangay: string;
+  isAdmin: boolean;
+}
+
+async function upsertTemplate(
+  client: PoolClient,
+  template: CertificateTemplate,
+  scope: CertificateTemplateWriteScope,
+): Promise<CertificateTemplate> {
   if (!template.id || !template.name || typeof template.bodyTemplate !== 'string' || !template.bodyTemplate.trim()) {
     throw new Error('Each certificate template requires an id, name, and body.');
   }
+  if (!template.documentType?.trim()) {
+    throw new Error('Each certificate template requires a certificate type.');
+  }
   const snapshot = { ...template, updatedAt: new Date().toISOString() };
   const barangayName = typeof template.barangay === 'string' ? template.barangay.trim() : '';
+  if (!scope.isAdmin && (
+    scope.role !== 'focal' ||
+    !scope.assignedBarangay.trim() ||
+    !barangayName ||
+    barangayName.toLocaleLowerCase() !== scope.assignedBarangay.trim().toLocaleLowerCase()
+  )) {
+    throw new Error('Focal Persons can only create or manage templates for their assigned barangay.');
+  }
   const barangayResult = barangayName && barangayName.toLowerCase() !== 'all'
     ? await client.query(
       'SELECT id FROM public.barangays WHERE lower(name) = lower($1) LIMIT 1',
@@ -193,6 +219,13 @@ async function upsertTemplate(client: PoolClient, template: CertificateTemplate)
     : barangayName.toLowerCase() === 'all'
       ? null
       : barangayResult?.rows[0]?.id || null;
+  const existing = await client.query<{ barangay_id: string | null }>(
+    'SELECT barangay_id FROM public.certificate_templates WHERE code = $1 FOR UPDATE',
+    [template.id]
+  );
+  if (!scope.isAdmin && existing.rows.length > 0 && existing.rows[0].barangay_id !== barangayId) {
+    throw new Error('Focal Persons cannot modify a shared template or a template belonging to another barangay.');
+  }
   await client.query(
     `INSERT INTO public.certificate_templates
       (barangay_id, code, name, template_body, template_data, is_active, is_archived, updated_at)
@@ -207,22 +240,24 @@ async function upsertTemplate(client: PoolClient, template: CertificateTemplate)
        updated_at = NOW()`,
     [barangayId, template.id, template.name, template.bodyTemplate, JSON.stringify(snapshot), template.isActive !== false]
   );
+  const saved = (await readStoredTemplates(client)).find(item => item.id === template.id);
+  if (!saved) throw new Error('Database did not return the saved certificate template.');
+  return saved;
 }
 
-export async function saveCertificateTemplates(templates: CertificateTemplate[]): Promise<CertificateTemplate[]> {
-  if (!Array.isArray(templates)) throw new Error('Certificate templates must be an array.');
+export async function saveCertificateTemplate(
+  template: CertificateTemplate,
+  scope: CertificateTemplateWriteScope,
+): Promise<CertificateTemplate> {
+  if (!template || typeof template !== 'object' || Array.isArray(template)) {
+    throw new Error('A certificate template is required.');
+  }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    for (const template of templates) await upsertTemplate(client, template);
-    const activeIds = templates.map(template => template.id);
-    await client.query(
-      'UPDATE public.certificate_templates SET is_active = FALSE, updated_at = NOW() WHERE is_archived = FALSE AND NOT (code = ANY($1::text[]))',
-      [activeIds]
-    );
-    const savedTemplates = await readStoredTemplates(client);
+    const savedTemplate = await upsertTemplate(client, template, scope);
     await client.query('COMMIT');
-    return savedTemplates;
+    return savedTemplate;
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
