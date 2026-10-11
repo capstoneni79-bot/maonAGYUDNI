@@ -6,7 +6,8 @@ const missingColumn = formatCertificateTemplateDatabaseError(
 );
 assert.equal(missingColumn.code, '42703');
 assert.match(missingColumn.message, /ct\.template_data/);
-assert.match(missingColumn.message, /008_certificate_templates_runtime_schema\.sql/);
+assert.match(missingColumn.message, /intended Supabase project/);
+assert.doesNotMatch(missingColumn.message, /outdated|apply.*migration/i);
 
 const missingRelation = formatCertificateTemplateDatabaseError(
   Object.assign(new Error('relation does not exist'), { code: '42P01' }),

@@ -135,6 +135,12 @@ const updatedTemplate = await saveCertificateTemplate({ ...fullTemplate, name: '
 });
 assert.equal(updatedTemplate.id, fullTemplate.id, 'updates retain the persistent template code');
 assert.equal(updatedTemplate.name, 'Updated certification', 'updates return the persisted template values');
+const refreshedTemplates = await getCertificateTemplates();
+assert.equal(
+  refreshedTemplates.find(template => template.id === fullTemplate.id)?.name,
+  'Updated certification',
+  'saved templates remain available from the database after a fresh load',
+);
 assert.equal(
   queries.some(query => query.includes('UPDATE public.certificate_templates SET is_active')),
   false,
@@ -172,10 +178,18 @@ assert.deepEqual(await getCertificateTemplates(), [], 'returns a genuine empty l
 const schemaDefinition = [
   readFileSync(new URL('../../supabase/migrations/001_create_full_registry_schema.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../../supabase/migrations/008_certificate_templates_runtime_schema.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../supabase/migrations/010_repair_certificate_template_runtime_column.sql', import.meta.url), 'utf8'),
 ].join('\n');
 for (const column of ['code', 'name', 'template_body', 'css_styles', 'template_data', 'is_active', 'is_archived', 'created_at', 'updated_at']) {
   assert.match(schemaDefinition, new RegExp(`\\b${column}\\b`), `migrations define queried template column ${column}`);
 }
+const repairMigration = readFileSync(
+  new URL('../../supabase/migrations/010_repair_certificate_template_runtime_column.sql', import.meta.url),
+  'utf8',
+);
+assert.match(repairMigration, /ADD COLUMN IF NOT EXISTS template_data JSONB NOT NULL DEFAULT '\{\}'::jsonb/i);
+assert.match(repairMigration, /ALTER COLUMN barangay_id DROP NOT NULL/i);
+assert.doesNotMatch(repairMigration, /DROP TABLE|TRUNCATE|DELETE FROM public\.certificate_templates/i);
 
 templateQueryError = Object.assign(new Error('column ct.template_data does not exist'), { code: '42703' });
 await assert.rejects(

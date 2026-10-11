@@ -20,8 +20,8 @@ export function formatCertificateTemplateDatabaseError(error: unknown): Certific
     return {
       code,
       message: missingColumn
-        ? `The configured database is missing column "${missingColumn}" required by the certificate-template query. Verify the live schema against the applied migrations, including 008_certificate_templates_runtime_schema.sql.`
-        : 'The configured database is missing a column required by the certificate-template query. Verify the live schema against the applied migrations, including 008_certificate_templates_runtime_schema.sql.',
+        ? `The configured database reports missing column "${missingColumn}" required by the certificate-template query. Confirm the application is connected to the intended Supabase project and that this column exists there.`
+        : 'The configured database reports a missing column required by the certificate-template query. Confirm the application is connected to the intended Supabase project and compare its live schema with the query.',
     };
   }
   if (code === '42501') {
