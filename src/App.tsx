@@ -14,6 +14,7 @@ import { BackgroundPhotoConfig } from './types/landingCms';
 import { Barangay, FarmerSelection, LandingPageConfig, SwineRecord, UserAccount, UserRole } from './types';
 import { useRoleTheme } from './hooks/useRoleTheme';
 import { supabase } from './lib/supabase';
+import { isDynamicImportFailure } from './utils/chunkLoadRecovery';
 
 // Route-level code-splitting for large modules & GIS/Export libraries
 const LandingPage = lazy(() => import('./components/landing/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -49,6 +50,24 @@ const ViewLoader: React.FC = () => (
   <div className="flex flex-col items-center justify-center min-h-[350px] w-full p-8 text-emerald-800">
     <div className="w-8 h-8 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin mb-3" />
     <span className="text-xs font-semibold tracking-wide text-stone-500">Loading module...</span>
+  </div>
+);
+
+const ModuleLoadError: React.FC<{ error: unknown }> = ({ error }) => (
+  <div role="alert" className="mx-auto my-12 max-w-xl rounded-2xl border border-amber-300 bg-amber-50 p-6 text-center text-amber-950 shadow-sm">
+    <h2 className="text-lg font-bold">This page could not be loaded</h2>
+    <p className="mt-2 text-sm">
+      {isDynamicImportFailure(error)
+        ? 'The app may have updated while this session was open. Reload the page to get the current version.'
+        : 'A required page module failed to load. Check your connection and try again.'}
+    </p>
+    <button
+      type="button"
+      onClick={() => window.location.reload()}
+      className="mt-4 inline-flex min-h-10 items-center rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+    >
+      Reload application
+    </button>
   </div>
 );
 
@@ -103,6 +122,25 @@ const applyAccountRealtimeChange = (
 };
 
 export default function App() {
+  const [moduleLoadError, setModuleLoadError] = useState<unknown>(null);
+  useEffect(() => {
+    const handleWindowError = (event: ErrorEvent) => {
+      if (!isDynamicImportFailure(event.error || event.message)) return;
+      console.error('Application dynamic import failed.', event.error || event.message);
+      setModuleLoadError(event.error || new Error(event.message));
+    };
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      if (!isDynamicImportFailure(event.reason)) return;
+      console.error('Application lazy-loaded module rejected.', event.reason);
+      setModuleLoadError(event.reason);
+    };
+    window.addEventListener('error', handleWindowError);
+    window.addEventListener('unhandledrejection', handleRejection);
+    return () => {
+      window.removeEventListener('error', handleWindowError);
+      window.removeEventListener('unhandledrejection', handleRejection);
+    };
+  }, []);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [currentRole, setCurrentRole] = useState<UserRole | 'landing'>('landing');
   const [sessionRestoreComplete, setSessionRestoreComplete] = useState(false);
@@ -819,7 +857,9 @@ export default function App() {
           }}
           className="flex-1 min-h-0 w-full min-w-0 overflow-y-auto text-stone-900 relative z-10"
         >
-          <Suspense fallback={<ViewLoader />}>
+          {moduleLoadError ? (
+            <ModuleLoadError error={moduleLoadError} />
+          ) : <Suspense fallback={<ViewLoader />}>
             {currentRole === 'landing' ? (
           <LandingPage
             swineList={swineList}
@@ -1189,7 +1229,7 @@ export default function App() {
             )}
           </>
         )}
-          </Suspense>
+          </Suspense>}
       </main>
     </div>
 

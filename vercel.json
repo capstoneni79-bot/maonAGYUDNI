@@ -4,7 +4,43 @@
   "outputDirectory": "dist",
   "headers": [
     {
+      "source": "/",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
+    {
       "source": "/index.html",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/registerSW.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/workbox-(.*)",
       "headers": [
         {
           "key": "Cache-Control",
@@ -28,7 +64,67 @@
       "destination": "/api/index.js"
     },
     {
-      "source": "/(.*)",
+      "source": "/admin/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/superadmin",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/superadmin/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/login",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/dashboard",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/gis",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/records",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/reports",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/certificate",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/takeoff",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/biosecurity",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/asf-ordinance",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/asf_ordinance",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/messages",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/barangays",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/account",
       "destination": "/index.html"
     }
   ]

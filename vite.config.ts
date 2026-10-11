@@ -12,12 +12,18 @@ export default defineConfig(() => {
       VitePWA({
         registerType: 'autoUpdate',
         workbox: {
+          cleanupOutdatedCaches: true,
           maximumFileSizeToCacheInBytes: 15 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,json,geojson}'],
           skipWaiting: true,
           clientsClaim: true,
           navigateFallback: '/index.html',
-          navigateFallbackDenylist: [/^\/api\//],
+          navigateFallbackDenylist: [
+            /^\/api\//,
+            /^\/assets\//,
+            /^\/(?:sw|registerSW)\.js$/,
+            /^\/workbox-/,
+          ],
           runtimeCaching: [
             {
               urlPattern: /^\/api\//i,

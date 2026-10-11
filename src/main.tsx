@@ -4,7 +4,10 @@ import App from './App.tsx';
 import { LanguageProvider } from './context/LanguageContext';
 import { OfflineProvider } from './context/OfflineContext';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { registerDynamicImportRecovery } from './utils/chunkLoadRecovery';
 import './index.css';
+
+registerDynamicImportRecovery();
 
 // Global quota and auth error tap for Google Maps Platform
 (window as any).gm_authFailure = () => {
