@@ -73,7 +73,7 @@ function getOrdinalSuffix(day: number): string {
 
 export const BarangayCertificateView: React.FC<BarangayCertificateViewProps> = ({
   data,
-  logoSettings,
+  logoSettings: suppliedLogoSettings,
   template,
   containerRef,
   isPrintMode,
@@ -133,7 +133,7 @@ export const BarangayCertificateView: React.FC<BarangayCertificateViewProps> = (
   const dateObj = parseDate(data.issueDate);
   const brgyDisplay = (data.barangay || 'NAVA').toUpperCase();
   const rawBrgy = data.barangay || 'Nava';
-  const effectiveLogoSettings = logoSettings || {
+  const effectiveLogoSettings: CertificateLogoSettings = suppliedLogoSettings || {
     leftLogoType: 'barangay',
     leftBarangayName: rawBrgy,
     centerLogoType: 'municipality',
@@ -142,11 +142,13 @@ export const BarangayCertificateView: React.FC<BarangayCertificateViewProps> = (
     watermarkType: 'municipality',
     watermarkOpacity: 0.12,
   };
+  const logoSettings = effectiveLogoSettings;
 
   return (
     <div
       ref={containerRef}
-      className="printable-certificate-container bg-white text-stone-900 border border-stone-300 shadow-xl rounded-xl max-w-[820px] mx-auto p-8 sm:p-12 relative overflow-hidden font-serif select-text"
+      data-print-document="certificate"
+      className="printable-certificate-container mx-auto w-full max-w-[820px] overflow-hidden rounded-xl border border-stone-300 bg-white p-8 font-serif text-stone-900 shadow-xl relative select-text sm:p-12"
       style={{
         minHeight: '1050px',
         backgroundColor: '#ffffff',
@@ -504,7 +506,7 @@ export const BarangayCertificateView: React.FC<BarangayCertificateViewProps> = (
                   {data.punongBarangay}
                 </div>
                 <p className="text-[11px] sm:text-xs font-bold text-stone-800 pt-1 uppercase">
-                  Punong Barangay
+                  {data.punongBarangayTitle || 'Punong Barangay'}
                 </p>
               </div>
 

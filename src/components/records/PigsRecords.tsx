@@ -201,6 +201,8 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   const [biosecurityFilter, setBiosecurityFilter] = useState<'all' | 'warning' | 'no_warning'>('all');
   const [readyFilter, setReadyFilter] = useState<'all' | 'ready' | 'not_ready'>('all');
   const [ageFilter, setAgeFilter] = useState<'all' | 'under_1m' | '1_3m' | '4_6m' | '7_12m' | 'over_1y'>('all');
+  const [registeredFrom, setRegisteredFrom] = useState('');
+  const [registeredTo, setRegisteredTo] = useState('');
   const [showArchived, setShowArchived] = useState<boolean>(false);
 
   // Sorting State
@@ -229,6 +231,28 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   const [isRefreshingDb, setIsRefreshingDb] = useState<boolean>(false);
   const [dbError, setDbError] = useState<string | null>(null);
   const [refreshNotice, setRefreshNotice] = useState<string>('');
+  const moreActionsRef = useRef<HTMLDetailsElement>(null);
+
+  useEffect(() => {
+    const closeMenuOnOutsideClick = (event: PointerEvent) => {
+      if (moreActionsRef.current && !moreActionsRef.current.contains(event.target as Node)) {
+        moreActionsRef.current.open = false;
+      }
+    };
+    const closeMenuOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && moreActionsRef.current?.open) {
+        moreActionsRef.current.open = false;
+        moreActionsRef.current.querySelector('summary')?.focus();
+      }
+    };
+
+    document.addEventListener('pointerdown', closeMenuOnOutsideClick);
+    document.addEventListener('keydown', closeMenuOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeMenuOnOutsideClick);
+      document.removeEventListener('keydown', closeMenuOnEscape);
+    };
+  }, []);
 
   const handleFetchFromDatabase = async (isManual = false) => {
     if (isManual) {
@@ -293,11 +317,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
 
   // Table Print & Import States
   const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
-  const [showPrintMenu, setShowPrintMenu] = useState<boolean>(false);
-  const [showImportMenu, setShowImportMenu] = useState<boolean>(false);
   const [importFileType, setImportFileType] = useState<'csv' | 'xlsx' | 'all'>('all');
-  const printMenuRef = useRef<HTMLDivElement>(null);
-  const importMenuRef = useRef<HTMLDivElement>(null);
   const [showPrintSelectModal, setShowPrintSelectModal] = useState<boolean>(false);
   const [printSelectedColumnIds, setPrintSelectedColumnIds] = useState<Record<string, boolean>>({});
   const [printValidationError, setPrintValidationError] = useState<string | null>(null);
@@ -305,31 +325,14 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   const [showImportModal, setShowImportModal] = useState<boolean>(false);
   const [importSuccessMsg, setImportSuccessMsg] = useState<string>('');
 
-  // Click-outside and Escape key handling for Print and Import dropdowns
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (printMenuRef.current && !printMenuRef.current.contains(event.target as Node)) {
-        setShowPrintMenu(false);
-      }
-      if (importMenuRef.current && !importMenuRef.current.contains(event.target as Node)) {
-        setShowImportMenu(false);
-      }
+  const triggerScopedPrint = (target: 'swine-record' | 'registry-report') => {
+    const clearPrintTarget = () => {
+      delete document.body.dataset.printTarget;
     };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setShowPrintMenu(false);
-        setShowImportMenu(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, []);
+    document.body.dataset.printTarget = target;
+    window.addEventListener('afterprint', clearPrintTarget, { once: true });
+    window.print();
+  };
 
   // Logo customization for Official Print Report
   const [reportLeftLogo, setReportLeftLogo] = useState<string>('/icon.svg');
@@ -376,6 +379,8 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     biosecurityFilter,
     readyFilter,
     ageFilter,
+    registeredFrom,
+    registeredTo,
     showArchived,
   ]);
 
@@ -531,6 +536,10 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
         if (ageFilter === 'over_1y' && tm <= 12) return false;
       }
 
+      const registeredDate = String(s.registeredAt || '').slice(0, 10);
+      if (registeredFrom && (!registeredDate || registeredDate < registeredFrom)) return false;
+      if (registeredTo && (!registeredDate || registeredDate > registeredTo)) return false;
+
       // Real-time Search Filter: Tag ID, Owner Name, Barangay, Swine Type, Status
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase().trim();
@@ -604,6 +613,9 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     statusFilter,
     biosecurityFilter,
     readyFilter,
+    ageFilter,
+    registeredFrom,
+    registeredTo,
     searchTerm,
     searchScope,
     activeFields,
@@ -732,6 +744,21 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     totalRecords === 0
       ? 0
       : farmerGroups.slice(0, endIndex).reduce((total, [, group]) => total + group.records.length, 0);
+  const activeFilterCount = [
+    searchTerm.trim().length > 0,
+    searchScope !== 'all',
+    selectedBarangay !== (currentRole === 'focal' && currentUser?.assignedBarangay ? currentUser.assignedBarangay : 'all'),
+    swineTypeFilter !== 'all',
+    farmScaleFilter !== 'all',
+    asfZoneFilter !== 'all',
+    statusFilter !== 'all',
+    biosecurityFilter !== 'all',
+    readyFilter !== 'all',
+    ageFilter !== 'all',
+    registeredFrom !== '',
+    registeredTo !== '',
+    showArchived,
+  ].filter(Boolean).length;
 
   useEffect(() => {
     if (searchTerm.trim()) {
@@ -933,92 +960,47 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                         Farm scale: {getFarmScaleLabel(record.computedFarmScale)} · ASF zone: {record.computedAsfZone || getBarangayASFZone(record.barangay || '')} · Biosecurity: {record.computedHasWarning ? 'Warning' : 'No warning'}
                       </p>
                     </div>
-                    <div className="flex flex-wrap items-center gap-1 sm:ml-auto">
-                      <button
-                        type="button"
-                        onClick={() => setViewingRecord(record)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 px-2 py-1.5 text-[10px] font-semibold text-emerald-800 transition hover:bg-emerald-50"
-                        title={t('records_view_details', 'View Full Record Details')}
+                    <div className="flex items-center gap-2 sm:ml-auto">
+                      <label className="sr-only" htmlFor={`farmer-record-actions-${record.id}`}>
+                        Actions for {record.computedPigId || record.pigIdTag || record.earTagNo}
+                      </label>
+                      <select
+                        id={`farmer-record-actions-${record.id}`}
+                        defaultValue=""
+                        onChange={event => {
+                          const action = event.currentTarget.value;
+                          event.currentTarget.selectedIndex = 0;
+                          if (action === 'view') setViewingRecord(record);
+                          else if (action === 'map' && onViewOnMap) onViewOnMap(record);
+                          else if (action === 'print') setPrintSingleRecord(record);
+                          else if (action === 'certificate') onIssueCertificate(record);
+                          else if (action === 'edit' && currentRole !== 'agent') onEditSwine(record);
+                          else if (action === 'ready' && currentRole !== 'agent' && record.status !== 'sold') handleToggleSell(record);
+                          else if (action === 'sold' && currentRole !== 'agent' && record.status !== 'sold') handleMarkSold(record);
+                          else if (action === 'archive' && currentRole !== 'agent') handleToggleArchive(record.id);
+                          else if (action === 'delete' && currentRole === 'admin') setDeleteConfirmRecord(record);
+                        }}
+                        className="min-h-11 w-full max-w-44 rounded-lg border border-stone-300 bg-white px-2 text-xs font-semibold text-stone-800 focus-visible:outline-2 focus-visible:outline-emerald-700"
                       >
-                        <Eye className="h-3.5 w-3.5" /> View
-                      </button>
-                      {onViewOnMap && (
-                        <button
-                          type="button"
-                          onClick={() => onViewOnMap(record)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-teal-200 px-2 py-1.5 text-[10px] font-semibold text-teal-800 transition hover:bg-teal-50"
-                          title={t('records_locate_map', 'Locate on Hinunangan GIS Map')}
-                        >
-                          <MapPin className="h-3.5 w-3.5" /> Map
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setPrintSingleRecord(record)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-[10px] font-semibold text-stone-700 transition hover:bg-stone-50"
-                        title={t('records_print_single', 'Print Swine Record Certificate')}
-                      >
-                        <Printer className="h-3.5 w-3.5" /> Print
-                      </button>
-                      {currentRole !== 'agent' && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => onEditSwine(record)}
-                            className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-[10px] font-semibold text-stone-700 transition hover:bg-stone-50"
-                            title={t('records_edit_locked', 'Edit Record (Pig ID is locked)')}
-                          >
-                            <Edit className="h-3.5 w-3.5" /> Edit
-                          </button>
-                          {record.status !== 'sold' && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => handleToggleSell(record)}
-                                className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-[10px] font-semibold text-stone-700 transition hover:bg-stone-50"
-                                title={record.readyToSell ? t('records_unmark_sell', 'Unmark Ready to Sell') : t('records_mark_sell', 'Mark as Ready to Sell')}
-                              >
-                                <ShoppingBag className="h-3.5 w-3.5" /> Ready
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleMarkSold(record)}
-                                className="inline-flex items-center gap-1 rounded-lg border border-blue-200 px-2 py-1.5 text-[10px] font-semibold text-blue-700 transition hover:bg-blue-50"
-                                title={t('records_mark_sold', 'Mark as Officially Sold')}
-                              >
-                                <CheckCircle className="h-3.5 w-3.5" /> Sold
-                              </button>
-                            </>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => handleToggleArchive(record.id)}
-                            className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-[10px] font-semibold text-stone-700 transition hover:bg-stone-50"
-                            title={record.isArchived ? t('records_restore', 'Restore Record') : t('records_archive', 'Archive Record')}
-                          >
-                            {record.isArchived ? <ArchiveRestore className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
-                            {record.isArchived ? 'Restore' : 'Archive'}
-                          </button>
-                        </>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => onIssueCertificate(record)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 px-2 py-1.5 text-[10px] font-semibold text-emerald-800 transition hover:bg-emerald-50"
-                        title={t('records_issue_cert', 'Generate Barangay Certificate')}
-                      >
-                        <FileText className="h-3.5 w-3.5" /> Certificate
-                      </button>
-                      {currentRole === 'admin' && (
-                        <button
-                          type="button"
-                          onClick={() => setDeleteConfirmRecord(record)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-2 py-1.5 text-[10px] font-semibold text-rose-700 transition hover:bg-rose-50"
-                          title={t('records_delete_record', 'Delete Swine Record')}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" /> Delete
-                        </button>
-                      )}
+                        <option value="" disabled>Record actions</option>
+                        <optgroup label="Record">
+                          <option value="view">View details</option>
+                          {currentRole !== 'agent' && <option value="edit">Edit record</option>}
+                        </optgroup>
+                        {onViewOnMap && <optgroup label="Location"><option value="map">View on GIS map</option></optgroup>}
+                        <optgroup label="Documents">
+                          <option value="print">Print swine record</option>
+                          <option value="certificate">Generate certificate</option>
+                        </optgroup>
+                        {currentRole !== 'agent' && <optgroup label="Record status">
+                          {record.status !== 'sold' && <>
+                            <option value="ready">{record.readyToSell ? 'Remove ready to sell' : 'Mark ready to sell'}</option>
+                            <option value="sold">Mark as sold</option>
+                          </>}
+                          <option value="archive">{record.isArchived ? 'Restore record' : 'Archive record'}</option>
+                        </optgroup>}
+                        {currentRole === 'admin' && <optgroup label="Destructive"><option value="delete">Delete record</option></optgroup>}
+                      </select>
                     </div>
                   </div>
                   {customDynamicColumns.length > 0 && (
@@ -1034,12 +1016,12 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 </article>
               );
             })}
-            {currentRole !== 'agent' && group.farmer.id && (
+            {currentRole !== 'agent' && (
               <div className="flex justify-end pt-1">
                 <button
                   type="button"
                   onClick={() => onAddSwine(group.farmer)}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-emerald-800"
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-800"
                 >
                   <Plus className="h-3.5 w-3.5" /> Add Swine
                 </button>
@@ -1286,12 +1268,12 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   };
 
   return (
-    <div className="space-y-6 py-6 px-4 max-w-7xl mx-auto">
+    <div className="mx-auto max-w-7xl space-y-6 px-3 py-6 sm:px-4">
       {/* Top Header & Actions */}
       <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-stone-200 shadow-xs">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold text-stone-900">{t('records_title', 'Swine Records Registry')}</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-bold text-stone-900 sm:text-xl">{t('records_title', 'Swine Records Registry')}</h2>
             <span className="bg-emerald-100 text-emerald-800 text-xs font-bold px-2.5 py-0.5 rounded-full">
               {t('records_heads_count', { count: totalRecords }, `${totalRecords} Heads`)}
             </span>
@@ -1306,199 +1288,142 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:items-center">
+          {currentRole !== 'agent' && (
+            <button
+              type="button"
+              onClick={() => onAddSwine()}
+              className="order-first inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-700 px-4 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-600 sm:order-last sm:w-auto"
+            >
+              <Plus className="w-4 h-4" />
+              <span>{t('records_register_swine', 'Register Swine')}</span>
+            </button>
+          )}
+
           {/* Refresh Records Button (Real database query) */}
           <button
             type="button"
             onClick={() => handleFetchFromDatabase(true)}
             disabled={isRefreshingDb || isLoadingDb}
-            className="px-3.5 py-1.5 rounded-xl border border-stone-300 hover:bg-stone-100 bg-white text-stone-800 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-2xs disabled:opacity-50"
+            className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-stone-300 bg-white px-3.5 py-1.5 text-xs font-bold text-stone-800 shadow-2xs transition hover:bg-stone-100 disabled:opacity-50"
             title="Fetch latest records directly from database"
           >
             <RotateCw className={`w-3.5 h-3.5 text-emerald-700 ${isRefreshingDb ? 'animate-spin' : ''}`} />
             <span>{isRefreshingDb ? t('loading_records', 'Loading Records...') : `↻ ${t('records_refresh', 'Refresh Records')}`}</span>
           </button>
 
-          {/* Quick Ready to Sell Toggle Button */}
-          <button
-            type="button"
-            onClick={() => setReadyFilter(readyFilter === 'ready' ? 'all' : 'ready')}
-            className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-2xs ${
-              readyFilter === 'ready'
-                ? 'bg-amber-100 text-amber-900 border-amber-400 ring-2 ring-amber-300'
-                : 'bg-white hover:bg-stone-50 text-stone-700 border-stone-300'
-            }`}
-            title="Filter Ready for Sale Heads"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-            <span>{t('records_ready_to_sell', 'Ready to Sell')}</span>
-          </button>
+          <details className="relative" ref={moreActionsRef}>
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-3 text-xs font-semibold text-stone-700 hover:bg-stone-50 focus-visible:outline-2 focus-visible:outline-emerald-700 [&::-webkit-details-marker]:hidden">
+              More actions <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+            </summary>
+            <div className="absolute right-0 z-40 mt-2 max-h-[min(70vh,36rem)] w-[min(24rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-stone-200 bg-white p-3 shadow-xl">
+              <div className="space-y-1">
+                <p className="px-2 text-[10px] font-bold uppercase tracking-wide text-stone-500">Display</p>
+                <button
+                  type="button"
+                  onClick={event => {
+                    setReadyFilter(readyFilter === 'ready' ? 'all' : 'ready');
+                    event.currentTarget.closest('details')?.removeAttribute('open');
+                  }}
+                  className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-xs font-semibold text-stone-800 hover:bg-amber-50"
+                >
+                  <Sparkles className="h-4 w-4 text-amber-600" />
+                  {readyFilter === 'ready' ? 'Show all records' : 'Ready to Sell'}
+                </button>
+                <button
+                  type="button"
+                  onClick={event => {
+                    setShowColumnPicker(value => !value);
+                    event.currentTarget.closest('details')?.removeAttribute('open');
+                  }}
+                  className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-xs font-semibold text-stone-800 hover:bg-stone-50"
+                >
+                  <Columns className="h-4 w-4 text-emerald-700" />
+                  {showColumnPicker ? 'Close column controls' : 'Choose visible columns'}
+                </button>
+              </div>
 
-          {/* Column Visibility Selector Toggle */}
-          <button
-            type="button"
-            onClick={() => setShowColumnPicker(!showColumnPicker)}
-            className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-2xs ${
-              showColumnPicker
-                ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
-                : 'border-stone-300 bg-stone-50 hover:bg-stone-100 text-stone-700'
-            }`}
-            title="Configure table columns"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-700" />
-            <span>{t('records_columns', 'Columns')}</span>
-          </button>
-
-          {/* Consolidated Import Dropdown */}
-          {currentRole !== 'agent' && (
-            <div className="relative inline-block text-left" ref={importMenuRef}>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowImportMenu(prev => !prev);
-                  setShowPrintMenu(false);
-                }}
-                aria-expanded={showImportMenu}
-                aria-haspopup="true"
-                className="px-3 py-1.5 rounded-xl border border-purple-300 bg-purple-50 hover:bg-purple-100 text-purple-900 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
-                title="Import Swine Records"
-              >
-                <Upload className="w-3.5 h-3.5 text-purple-700" />
-                <span>{t('records_import', 'Import')}</span>
-                <ChevronDown className={`w-3 h-3 text-purple-600 transition-transform ${showImportMenu ? 'rotate-180' : ''}`} />
-              </button>
-
-              {showImportMenu && (
-                <div className="absolute left-0 mt-1.5 w-60 bg-white rounded-2xl shadow-xl border border-stone-200 py-2 z-40 animate-fadeIn">
-                  <div className="px-3.5 py-1 text-[11px] font-black text-stone-400 uppercase tracking-wider">
-                    IMPORT RECORDS
-                  </div>
-                  <div className="my-1 border-t border-stone-100" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setImportFileType('csv');
-                      setShowImportMenu(false);
-                      setShowImportModal(true);
-                    }}
-                    className="w-full text-left px-3.5 py-2 text-xs text-stone-800 hover:bg-purple-50 hover:text-purple-950 font-semibold flex items-center gap-2.5 cursor-pointer transition"
-                  >
-                    <FileSpreadsheet className="w-4 h-4 text-purple-600 shrink-0" />
-                    <span>📥 Import CSV</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setImportFileType('xlsx');
-                      setShowImportMenu(false);
-                      setShowImportModal(true);
-                    }}
-                    className="w-full text-left px-3.5 py-2 text-xs text-stone-800 hover:bg-purple-50 hover:text-purple-950 font-semibold flex items-center gap-2.5 cursor-pointer transition"
-                  >
-                    <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>📥 Import Excel Spreadsheet</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setImportFileType('all');
-                      setShowImportMenu(false);
-                      setShowImportModal(true);
-                    }}
-                    className="w-full text-left px-3.5 py-2 text-xs text-stone-800 hover:bg-purple-50 hover:text-purple-950 font-semibold flex items-center gap-2.5 cursor-pointer transition"
-                  >
-                    <Upload className="w-4 h-4 text-blue-600 shrink-0" />
-                    <span>📥 Import Records File</span>
-                  </button>
+              {currentRole !== 'agent' && (
+                <div className="mt-2 space-y-1 border-t border-stone-100 pt-2">
+                  <p className="px-2 text-[10px] font-bold uppercase tracking-wide text-stone-500">Import records</p>
+                  {([
+                    ['csv', 'Import CSV', FileSpreadsheet],
+                    ['xlsx', 'Import Excel Spreadsheet', FileSpreadsheet],
+                    ['all', 'Import Records File', Upload],
+                  ] as const).map(([fileType, label, Icon]) => (
+                    <button
+                      key={fileType}
+                      type="button"
+                      onClick={event => {
+                        setImportFileType(fileType);
+                        setShowImportModal(true);
+                        event.currentTarget.closest('details')?.removeAttribute('open');
+                      }}
+                      className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-xs font-semibold text-stone-800 hover:bg-purple-50"
+                    >
+                      <Icon className="h-4 w-4 text-purple-700" />
+                      {label}
+                    </button>
+                  ))}
                 </div>
               )}
-            </div>
-          )}
 
-          {/* Consolidated Print / Export Dropdown */}
-          <div className="relative inline-block text-left" ref={printMenuRef}>
-            <button
-              type="button"
-              onClick={() => {
-                setShowPrintMenu(prev => !prev);
-                setShowImportMenu(false);
-              }}
-              aria-expanded={showPrintMenu}
-              aria-haspopup="true"
-              className="px-3 py-1.5 rounded-xl border border-stone-300 hover:bg-stone-100 bg-white text-stone-700 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
-              title="Print and Export Records"
-            >
-              <Printer className="w-3.5 h-3.5 text-stone-600" />
-              <span>{t('records_print', 'Print')}</span>
-              <ChevronDown className={`w-3 h-3 text-stone-400 transition-transform ${showPrintMenu ? 'rotate-180' : ''}`} />
-            </button>
-
-            {showPrintMenu && (
-              <div className="absolute right-0 mt-1.5 w-60 bg-white rounded-2xl shadow-xl border border-stone-200 py-2 z-40 animate-fadeIn">
-                <div className="px-3.5 py-1 text-[11px] font-black text-stone-400 uppercase tracking-wider">
-                  PRINT / EXPORT
-                </div>
-                <div className="my-1 border-t border-stone-100" />
+              <div className="mt-2 space-y-1 border-t border-stone-100 pt-2">
+                <p className="px-2 text-[10px] font-bold uppercase tracking-wide text-stone-500">Print and export</p>
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={event => {
                     setActivePrintColumns(activeFields);
-                    setShowPrintMenu(false);
                     setShowPrintModal(true);
+                    event.currentTarget.closest('details')?.removeAttribute('open');
                   }}
-                  className="w-full text-left px-3.5 py-2 text-xs text-stone-800 hover:bg-emerald-50 hover:text-emerald-950 font-semibold flex items-center gap-2.5 cursor-pointer transition"
+                  className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-xs font-semibold text-stone-800 hover:bg-emerald-50"
                 >
-                  <Printer className="w-4 h-4 text-emerald-700 shrink-0" />
-                  <div>
-                    <div className="font-bold">🖨 Print Current Records</div>
-                    <div className="text-[10px] text-stone-500 font-normal">
-                      Print all {activeFields.length} active columns
-                    </div>
-                  </div>
+                  <Printer className="h-4 w-4 text-emerald-700" />
+                  Print current records ({totalRecords})
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowPrintMenu(false);
+                  onClick={event => {
                     exportToExcel();
+                    event.currentTarget.closest('details')?.removeAttribute('open');
                   }}
-                  className="w-full text-left px-3.5 py-2 text-xs text-stone-800 hover:bg-emerald-50 hover:text-emerald-950 font-semibold flex items-center gap-2.5 cursor-pointer transition"
+                  className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-xs font-semibold text-stone-800 hover:bg-emerald-50"
                 >
-                  <FileSpreadsheet className="w-4 h-4 text-emerald-700 shrink-0" />
-                  <div className="font-bold">📄 Excel (.CSV)</div>
+                  <FileSpreadsheet className="h-4 w-4 text-emerald-700" />
+                  Export Excel (.CSV)
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowPrintMenu(false);
+                  onClick={event => {
                     exportToWord();
+                    event.currentTarget.closest('details')?.removeAttribute('open');
                   }}
-                  className="w-full text-left px-3.5 py-2 text-xs text-stone-800 hover:bg-blue-50 hover:text-blue-950 font-semibold flex items-center gap-2.5 cursor-pointer transition"
+                  className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-xs font-semibold text-stone-800 hover:bg-blue-50"
                 >
-                  <FileText className="w-4 h-4 text-blue-700 shrink-0" />
-                  <div className="font-bold">📘 Word (.DOC)</div>
+                  <FileText className="h-4 w-4 text-blue-700" />
+                  Export Word (.DOC)
                 </button>
-                <div className="my-1 border-t border-stone-100" />
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={event => {
                     const initial: Record<string, boolean> = {};
-                    activeFields.forEach(f => {
-                      initial[f.field.id] = true;
+                    activeFields.forEach(field => {
+                      initial[field.field.id] = true;
                     });
                     setPrintSelectedColumnIds(initial);
                     setPrintValidationError(null);
-                    setShowPrintMenu(false);
                     setShowPrintSelectModal(true);
+                    event.currentTarget.closest('details')?.removeAttribute('open');
                   }}
-                  className="w-full text-left px-3.5 py-1.5 text-xs text-stone-600 hover:bg-stone-50 hover:text-stone-900 font-medium flex items-center gap-2.5 cursor-pointer transition"
+                  className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-xs font-semibold text-stone-800 hover:bg-stone-50"
                 >
-                  <SlidersHorizontal className="w-3.5 h-3.5 text-stone-500 shrink-0" />
-                  <span className="text-[11px]">Select Columns to Print...</span>
+                  <SlidersHorizontal className="h-4 w-4 text-stone-600" />
+                  Select print columns
                 </button>
               </div>
-            )}
-          </div>
+            </div>
+          </details>
 
           {/* Bulk Delete Button (Admin only, active when records selected) */}
           {currentRole === 'admin' && selectedRecordIds.size > 0 && (
@@ -1510,17 +1435,6 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span>{t('btn_bulk_delete', { count: selectedRecordIds.size }, `Bulk Delete (${selectedRecordIds.size})`)}</span>
-            </button>
-          )}
-
-          {/* Register New Swine */}
-          {currentRole !== 'agent' && (
-            <button
-              onClick={() => onAddSwine()}
-              className="px-4 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>{t('records_register_swine', 'Register Swine')}</span>
             </button>
           )}
         </div>
@@ -1658,12 +1572,12 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 }}
                 placeholder={
                   searchScope === 'tag'
-                    ? t('records_search_placeholder', 'Real-time search by Tag ID or Owner Name...')
+                    ? 'Search by Pig ID Tag'
                     : searchScope === 'owner'
-                    ? t('records_search_placeholder', 'Real-time search by Tag ID or Owner Name...')
-                    : t('records_search_placeholder', 'Real-time search by Tag ID or Owner Name...')
+                    ? 'Search by Farmer Name'
+                    : 'Search by Pig ID Tag or Farmer Name'
                 }
-                className={`w-full pl-10 pr-28 py-2.5 rounded-xl border text-xs font-medium transition focus:outline-hidden ${
+                className={`min-h-11 w-full rounded-xl border py-2.5 pl-10 pr-28 text-xs font-medium transition focus:outline-hidden ${
                   searchTerm
                     ? 'border-emerald-600 bg-emerald-50/25 ring-2 ring-emerald-600/15'
                     : 'border-stone-300 bg-white hover:border-stone-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20'
@@ -1698,14 +1612,14 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             </div>
 
             {/* Dedicated Search Scope Selector */}
-            <div className="flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs shrink-0 self-start md:self-auto gap-1">
+            <div className="flex min-h-11 items-center gap-1 self-start rounded-xl border border-stone-200 bg-stone-100 p-1 text-xs md:self-auto">
               <span className="text-[10px] font-bold uppercase text-stone-400 px-1.5 tracking-wider hidden lg:inline">
                 {t('records_scope', 'Scope')}:
               </span>
               <button
                 type="button"
                 onClick={() => setSearchScope('all')}
-                className={`px-2.5 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${
+                className={`min-h-9 rounded-lg px-2.5 py-1.5 font-bold text-xs transition cursor-pointer ${
                   searchScope === 'all'
                     ? 'bg-white text-stone-900 shadow-2xs'
                     : 'text-stone-600 hover:text-stone-900'
@@ -1716,7 +1630,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               <button
                 type="button"
                 onClick={() => setSearchScope('tag')}
-                className={`px-2.5 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer flex items-center gap-1 ${
+                className={`inline-flex min-h-9 items-center gap-1 rounded-lg px-2.5 py-1.5 font-bold text-xs transition cursor-pointer ${
                   searchScope === 'tag'
                     ? 'bg-emerald-800 text-white shadow-2xs'
                     : 'text-stone-600 hover:text-emerald-800'
@@ -1728,7 +1642,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               <button
                 type="button"
                 onClick={() => setSearchScope('owner')}
-                className={`px-2.5 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer flex items-center gap-1 ${
+                className={`inline-flex min-h-9 items-center gap-1 rounded-lg px-2.5 py-1.5 font-bold text-xs transition cursor-pointer ${
                   searchScope === 'owner'
                     ? 'bg-emerald-800 text-white shadow-2xs'
                     : 'text-stone-600 hover:text-emerald-800'
@@ -1768,15 +1682,16 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
           )}
         </div>
 
-        {/* Row 2: Secondary Dropdown Filters */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 text-xs pt-2 border-t border-stone-100">
+        {/* Primary filters remain visible; secondary filters stay available below. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-2 border-t border-stone-100">
           {/* Barangay Filter */}
           <div>
+            <label className="mb-1 block text-[11px] font-semibold text-stone-600">Barangay</label>
             <select
               value={selectedBarangay}
               disabled={currentRole === 'focal'}
               onChange={e => setSelectedBarangay(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden disabled:bg-stone-100"
+              className="min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden disabled:bg-stone-100"
             >
               <option value="all">{t('records_all_barangays', 'All Barangays')} ({barangays.length})</option>
               {barangays.map(b => (
@@ -1786,6 +1701,32 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               ))}
             </select>
           </div>
+
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold text-stone-600">Record status</label>
+            <select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+              className="min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+            >
+              <option value="all">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="ready">Ready for Sale</option>
+              <option value="sold">Sold</option>
+              <option value="quarantined">Quarantined</option>
+              <option value="sick">Suspected / Sick</option>
+            </select>
+          </div>
+        </div>
+
+        <details className="group border-t border-stone-100 pt-2">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-xs font-bold text-stone-700 focus-visible:outline-2 focus-visible:outline-emerald-700 [&::-webkit-details-marker]:hidden">
+            <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden="true" />
+            Advanced filters
+            <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-bold text-stone-600">{activeFilterCount} active</span>
+          </summary>
+          <div className="mt-3 space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
 
           {/* Swine Type Filter */}
           <div>
@@ -1833,24 +1774,8 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
           </div>
         </div>
 
-        {/* Row 2: Secondary Filters & Sorting */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 text-xs pt-1 border-t border-stone-100">
-          {/* Status Filter */}
-          <div>
-            <select
-              value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
-            >
-              <option value="all">{t('records_all_statuses', 'All Statuses')}</option>
-              <option value="active">{t('status_active', 'Active')}</option>
-              <option value="ready">{t('records_ready_to_sell', 'Ready for Sale')}</option>
-              <option value="sold">{t('status_sold', 'Sold')}</option>
-              <option value="quarantined">{t('status_quarantined', 'Quarantined')}</option>
-              <option value="sick">{t('status_suspected', 'Suspected / Sick')}</option>
-            </select>
-          </div>
-
+        {/* Advanced status, biosecurity, age, sorting, and archive controls */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 text-xs">
           {/* Biosecurity Warning Filter */}
           <div>
             <select
@@ -1879,6 +1804,14 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               <option value="7_12m">7–12 Months</option>
               <option value="over_1y">Over 1 Year</option>
             </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold text-stone-600">Registration date</label>
+            <div className="grid grid-cols-2 gap-2">
+              <input type="date" aria-label="Registered from" value={registeredFrom} max={registeredTo || undefined} onChange={e => setRegisteredFrom(e.target.value)} className="min-h-11 min-w-0 w-full rounded-xl border border-stone-300 bg-white px-2 text-xs" />
+              <input type="date" aria-label="Registered to" value={registeredTo} min={registeredFrom || undefined} onChange={e => setRegisteredTo(e.target.value)} className="min-h-11 min-w-0 w-full rounded-xl border border-stone-300 bg-white px-2 text-xs" />
+            </div>
           </div>
 
           {/* Sort By Field */}
@@ -1943,9 +1876,12 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
           </div>
         </div>
 
+          </div>
+        </details>
+
         {/* Live Filter Summary & Counter */}
         <div className="flex flex-wrap items-center justify-between pt-1 border-t border-stone-100 text-xs text-stone-500">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>
               {t('records_showing', {
                 start: startRecordIndex,
@@ -1953,11 +1889,12 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 total: totalRecords,
               })}
             </span>
-            {(searchTerm || selectedBarangay !== 'all' || swineTypeFilter !== 'all' || farmScaleFilter !== 'all' || asfZoneFilter !== 'all' || statusFilter !== 'all' || biosecurityFilter !== 'all' || readyFilter !== 'all') && (
+            {activeFilterCount > 0 && (
               <button
                 type="button"
                 onClick={() => {
                   setSearchTerm('');
+                  setSearchScope('all');
                   setSelectedBarangay(currentRole === 'focal' && currentUser?.assignedBarangay ? currentUser.assignedBarangay : 'all');
                   setSwineTypeFilter('all');
                   setFarmScaleFilter('all');
@@ -1965,10 +1902,14 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                   setStatusFilter('all');
                   setBiosecurityFilter('all');
                   setReadyFilter('all');
+                  setAgeFilter('all');
+                  setRegisteredFrom('');
+                  setRegisteredTo('');
+                  setShowArchived(false);
                 }}
-                className="text-emerald-700 hover:underline font-bold cursor-pointer"
+                className="min-h-11 text-emerald-700 hover:underline font-bold cursor-pointer"
               >
-                {t('common_reset', 'Reset all filters')}
+                Clear filters ({activeFilterCount})
               </button>
             )}
           </div>
@@ -2713,111 +2654,48 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                     })}
 
                     {/* Column 13: Actions */}
-                    <td className={`sticky right-0 z-20 min-w-[320px] border-l border-stone-200 px-3 py-3 text-right shadow-2xs ${
+                    <td className={`sticky right-0 z-20 min-w-[132px] border-l border-stone-200 px-3 py-3 text-right shadow-2xs ${
                       isSelected ? 'bg-amber-50 group-hover:bg-amber-100' : 'bg-white group-hover:bg-emerald-50'
                     }`}>
-                      <div className="flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap">
-                        {/* View Details */}
-                        <button
-                          onClick={() => setViewingRecord(swine)}
-                          className="p-1.5 rounded-lg text-emerald-800 hover:bg-emerald-100 transition cursor-pointer"
-                          title={t('records_view_details', 'View Full Record Details')}
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-
-                        {/* View on GIS Map */}
-                        {onViewOnMap && (
-                          <button
-                            onClick={() => onViewOnMap(swine)}
-                            className="p-1.5 rounded-lg text-teal-700 hover:bg-teal-100 transition cursor-pointer"
-                            title={t('records_locate_map', 'Locate on Hinunangan GIS Map')}
-                          >
-                            <MapPin className="w-4 h-4" />
-                          </button>
-                        )}
-
-                        {/* Print Single Record */}
-                        <button
-                          onClick={() => setPrintSingleRecord(swine)}
-                          className="p-1.5 rounded-lg text-stone-600 hover:bg-stone-100 transition cursor-pointer"
-                          title={t('records_print_single', 'Print Swine Record Certificate')}
-                        >
-                          <Printer className="w-4 h-4" />
-                        </button>
-
-                        {/* Edit Record */}
-                        {currentRole !== 'agent' && (
-                          <button
-                            onClick={() => onEditSwine(swine)}
-                            className="p-1.5 rounded-lg text-stone-600 hover:bg-stone-100 transition cursor-pointer"
-                            title={t('records_edit_locked', 'Edit Record (Pig ID is locked)')}
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                        )}
-
-                        {/* Toggle Ready To Sell */}
-                        {currentRole !== 'agent' && swine.status !== 'sold' && (
-                          <button
-                            onClick={() => handleToggleSell(swine)}
-                            className={`p-1.5 rounded-lg transition cursor-pointer ${
-                              swine.readyToSell
-                                ? 'text-amber-600 hover:bg-amber-100'
-                                : 'text-stone-400 hover:bg-stone-100'
-                            }`}
-                            title={swine.readyToSell ? t('records_unmark_sell', 'Unmark Ready to Sell') : t('records_mark_sell', 'Mark as Ready to Sell')}
-                          >
-                            <ShoppingBag className="w-4 h-4" />
-                          </button>
-                        )}
-
-                        {/* Mark Officially Sold */}
-                        {currentRole !== 'agent' && swine.status !== 'sold' && (
-                          <button
-                            onClick={() => handleMarkSold(swine)}
-                            className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-100 transition cursor-pointer"
-                            title={t('records_mark_sold', 'Mark as Officially Sold')}
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                          </button>
-                        )}
-
-                        {/* Issue Certificate */}
-                        <button
-                          onClick={() => onIssueCertificate(swine)}
-                          className="p-1.5 rounded-lg text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
-                          title={t('records_issue_cert', 'Generate Barangay Certificate')}
-                        >
-                          <FileText className="w-4 h-4" />
-                        </button>
-
-                        {/* Archive / Restore */}
-                        {currentRole !== 'agent' && (
-                          <button
-                            onClick={() => handleToggleArchive(swine.id)}
-                            className="p-1.5 rounded-lg text-stone-500 hover:bg-stone-100 transition cursor-pointer"
-                            title={swine.isArchived ? t('records_restore', 'Restore Record') : t('records_archive', 'Archive Record')}
-                          >
-                            {swine.isArchived ? (
-                              <ArchiveRestore className="w-4 h-4" />
-                            ) : (
-                              <Archive className="w-4 h-4" />
-                            )}
-                          </button>
-                        )}
-
-                        {/* Delete Permanently (Requires Confirmation Modal) */}
-                        {currentRole === 'admin' && (
-                          <button
-                            onClick={() => setDeleteConfirmRecord(swine)}
-                            className="p-1.5 rounded-lg text-red-500 hover:bg-red-100 transition cursor-pointer"
-                            title={t('records_delete_record', 'Delete Swine Record')}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
+                      <select
+                        defaultValue=""
+                        aria-label={`Actions for ${swine.computedPigId || swine.pigIdTag || swine.earTagNo}`}
+                        onChange={event => {
+                          const action = event.currentTarget.value;
+                          event.currentTarget.selectedIndex = 0;
+                          if (action === 'view') setViewingRecord(swine);
+                          else if (action === 'farmer') setExpandedFarmerKey(farmerKey);
+                          else if (action === 'map' && onViewOnMap) onViewOnMap(swine);
+                          else if (action === 'print') setPrintSingleRecord(swine);
+                          else if (action === 'certificate') onIssueCertificate(swine);
+                          else if (action === 'edit' && currentRole !== 'agent') onEditSwine(swine);
+                          else if (action === 'ready' && currentRole !== 'agent' && swine.status !== 'sold') handleToggleSell(swine);
+                          else if (action === 'sold' && currentRole !== 'agent' && swine.status !== 'sold') handleMarkSold(swine);
+                          else if (action === 'archive' && currentRole !== 'agent') handleToggleArchive(swine.id);
+                          else if (action === 'delete' && currentRole === 'admin') setDeleteConfirmRecord(swine);
+                        }}
+                        className="min-h-11 w-full max-w-36 rounded-lg border border-stone-300 bg-white px-2 text-xs font-semibold text-stone-800 focus-visible:outline-2 focus-visible:outline-emerald-700"
+                      >
+                        <option value="" disabled>Actions</option>
+                        <optgroup label="Record">
+                          <option value="view">View details</option>
+                          <option value="farmer">View farmer&apos;s swine</option>
+                          {currentRole !== 'agent' && <option value="edit">Edit record</option>}
+                        </optgroup>
+                        {onViewOnMap && <optgroup label="Location"><option value="map">View on GIS map</option></optgroup>}
+                        <optgroup label="Documents">
+                          <option value="print">Print swine record</option>
+                          <option value="certificate">Generate certificate</option>
+                        </optgroup>
+                        {currentRole !== 'agent' && <optgroup label="Record status">
+                          {swine.status !== 'sold' && <>
+                            <option value="ready">{swine.readyToSell ? 'Remove ready to sell' : 'Mark ready to sell'}</option>
+                            <option value="sold">Mark as sold</option>
+                          </>}
+                          <option value="archive">{swine.isArchived ? 'Restore record' : 'Archive record'}</option>
+                        </optgroup>}
+                        {currentRole === 'admin' && <optgroup label="Destructive"><option value="delete">Delete record</option></optgroup>}
+                      </select>
                     </td>
                     </tr>
                     {isFarmerExpanded
@@ -3310,7 +3188,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={() => triggerScopedPrint('swine-record')}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
                 >
                   <Printer className="w-3.5 h-3.5" /> Print Now
@@ -3326,7 +3204,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             </div>
 
             {/* Document Body */}
-            <div className="p-8 space-y-6 text-xs text-stone-800 printable-document bg-white">
+            <div data-print-document="swine-record" className="p-8 space-y-6 text-xs text-stone-800 printable-document bg-white">
               {/* Header */}
               <div className="text-center border-b-2 border-emerald-800 pb-4">
                 <div className="flex items-center justify-between gap-4 mb-2">
@@ -3538,7 +3416,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={() => triggerScopedPrint('registry-report')}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer shadow-xs"
                 >
                   <Printer className="w-3.5 h-3.5" /> Print Now
@@ -3655,7 +3533,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             )}
 
             {/* Printable Content Area */}
-            <div className="p-8 space-y-6 text-xs text-stone-800 printable-document bg-white">
+            <div data-print-document="registry-report" className="p-8 space-y-6 text-xs text-stone-800 printable-document bg-white">
               {/* Official Header */}
               <div className="text-center border-b-2 border-emerald-800 pb-4">
                 <div className="flex items-center justify-between gap-4 mb-2">

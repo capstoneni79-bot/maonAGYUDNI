@@ -691,7 +691,7 @@ export default function App() {
   return (
     <div
       style={fontStyle}
-      className={`${currentRole === 'landing' ? 'min-h-dvh' : 'h-dvh max-h-dvh overflow-hidden'} bg-slate-100 text-stone-900 flex flex-col font-sans antialiased selection:bg-emerald-200 relative`}
+      className={`${currentRole === 'landing' ? 'min-h-dvh' : 'h-dvh max-h-dvh overflow-hidden'} app-shell bg-slate-100 text-stone-900 flex flex-col font-sans antialiased selection:bg-emerald-200 relative`}
     >
       {/* Connected Interface Background Layer - Exclusively for Public Landing View */}
       {interfaceBg?.imageUrl && interfaceBg.enabled !== false && currentRole === 'landing' && (

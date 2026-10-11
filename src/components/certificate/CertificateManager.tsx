@@ -337,6 +337,8 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
   // Dynamic Certificate Templates State
   const [templates, setTemplates] = useState<CertificateTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('tpl-nava-official');
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(true);
+  const [templateLoadError, setTemplateLoadError] = useState<string | null>(null);
   const [isTemplateEditorOpen, setIsTemplateEditorOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<CertificateTemplate | undefined>(undefined);
 
@@ -344,11 +346,16 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
     moduleDataApi.get<CertificateTemplate[]>('certificate_templates')
       .then(savedTemplates => {
         setTemplates(savedTemplates);
+        setTemplateLoadError(null);
         setSelectedTemplateId(current => savedTemplates.some(template => template.id === current)
           ? current
           : savedTemplates[0]?.id || '');
       })
-      .catch(error => console.error('Unable to load report templates from database:', error));
+      .catch(error => {
+        console.error('Unable to load report templates from database:', error);
+        setTemplateLoadError(error instanceof Error ? error.message : 'Unable to load templates from the database.');
+      })
+      .finally(() => setIsLoadingTemplates(false));
   }, []);
 
   // Template Search & Filters in Manager
@@ -383,6 +390,14 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
       return matchesSearch && matchesBarangay && matchesDocType && matchesLanguage;
     });
   }, [templates, tplSearchQuery, tplBarangayFilter, tplDocTypeFilter, tplLanguageFilter]);
+
+  const templateOptions = useMemo(() => {
+    if (filteredTemplates.some(template => template.id === selectedTemplateId)) {
+      return filteredTemplates;
+    }
+    const selectedTemplate = templates.find(template => template.id === selectedTemplateId);
+    return selectedTemplate ? [selectedTemplate, ...filteredTemplates] : filteredTemplates;
+  }, [filteredTemplates, selectedTemplateId, templates]);
 
   const activeTemplate = useMemo(() => {
     return templates.find(t => t.id === selectedTemplateId) || templates[0];
@@ -560,8 +575,17 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
   };
 
   // Execute Native Print
-  const handleTriggerPrint = () => {
+  const triggerScopedPrint = (target: string) => {
+    const clearPrintTarget = () => {
+      delete document.body.dataset.printTarget;
+    };
+    document.body.dataset.printTarget = target;
+    window.addEventListener('afterprint', clearPrintTarget, { once: true });
     window.print();
+  };
+
+  const handleTriggerPrint = () => {
+    triggerScopedPrint('certificate');
   };
 
   // Color conversion helper to sanitize OKLCH colors for html2canvas compatibility
@@ -618,25 +642,23 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
       });
 
       const imgData = canvas.toDataURL('image/jpeg', 0.95);
-      const isLandscape = orientation === 'landscape';
       const pdf = new jsPDF({
-        orientation: isLandscape ? 'l' : 'p',
+        orientation: 'p',
         unit: 'mm',
-        format:
-          paperSize === 'folio'
-            ? [215.9, 330.2]
-            : paperSize === 'legal'
-            ? [215.9, 355.6]
-            : paperSize,
+        format: 'letter',
       });
 
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
       const imgWidth = canvas.width;
       const imgHeight = canvas.height;
-      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+      const pageMargin = 10;
+      const ratio = Math.min(
+        (pdfWidth - pageMargin * 2) / imgWidth,
+        (pdfHeight - pageMargin * 2) / imgHeight
+      );
       const imgX = (pdfWidth - imgWidth * ratio) / 2;
-      const imgY = 6;
+      const imgY = (pdfHeight - imgHeight * ratio) / 2;
 
       pdf.addImage(imgData, 'JPEG', imgX, imgY, imgWidth * ratio, imgHeight * ratio);
       const filename = `DA-Hinunangan-Barangay-Certification-${activeCertData.barangay}-${Date.now()}.pdf`;
@@ -748,7 +770,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
 
     if (printNow) {
       setTimeout(() => {
-        window.print();
+        triggerScopedPrint('certificate');
       }, 400);
     }
   };
@@ -941,13 +963,13 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
       )}
 
       {/* Main Top Header */}
-      <div className="bg-white border-b border-stone-200 px-6 py-4 shadow-2xs">
-        <div className="max-w-[1400px] mx-auto flex flex-wrap items-center justify-between gap-4">
+      <div className="no-print bg-white border-b border-stone-200 px-6 py-4 shadow-2xs">
+        <div className="mx-auto flex max-w-[1400px] flex-wrap items-center justify-between gap-4 px-2 sm:px-0">
           <div>
             <div className="text-[11px] font-bold tracking-widest text-slate-500 uppercase">
               MUNICIPALITY OF HINUNANGAN • PROVINCE OF SOUTHERN LEYTE
             </div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+            <h1 className="flex min-w-0 flex-wrap items-center gap-2 text-xl font-black tracking-tight text-slate-900 sm:text-2xl">
               <span>Official Barangay Certification & Swine Registry</span>
               <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
                 LGU Official
@@ -955,55 +977,50 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
             </h1>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {/* Create Certificate Main Button */}
-            <button
+            {documentType === 'barangay_certification' && <button
               type="button"
               onClick={() => setIsCreateCertModalOpen(true)}
-              className="inline-flex items-center gap-2 text-xs font-black text-slate-950 bg-amber-400 hover:bg-amber-300 border border-amber-500/40 px-4 py-2 rounded-xl transition shadow-xs cursor-pointer"
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-400 px-4 py-2 text-xs font-black text-slate-950 shadow-xs transition hover:bg-amber-300 cursor-pointer"
             >
               <Plus className="w-4 h-4 stroke-[3]" />
               <span>Create / Issue Certificate</span>
-            </button>
+            </button>}
 
-            {/* Logo Customizer Button */}
-            <button
-              type="button"
-              onClick={() => setIsLogoModalOpen(true)}
-              className="inline-flex items-center gap-2 text-xs font-bold text-purple-700 hover:text-purple-800 bg-purple-50 hover:bg-purple-100/80 border border-purple-200 px-3.5 py-2 rounded-xl transition cursor-pointer"
-            >
-              <Sliders className="w-4 h-4" />
-              <span>Change Logos & Seals</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                window.open('/', '_blank');
-              }}
-              className="inline-flex items-center gap-2 text-xs font-bold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100/80 border border-blue-200 px-3.5 py-2 rounded-xl transition cursor-pointer"
-            >
-              <Globe className="w-4 h-4" />
-              <span>Public Portal</span>
-            </button>
+            <details className="relative">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl border border-stone-300 bg-white px-3 text-xs font-semibold text-stone-700 hover:bg-stone-50 focus-visible:outline-2 focus-visible:outline-emerald-700 [&::-webkit-details-marker]:hidden">
+                More actions <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+              </summary>
+              <div className="absolute right-0 z-40 mt-1 w-[min(14rem,calc(100vw-2rem))] rounded-xl border border-stone-200 bg-white p-1.5 shadow-xl">
+                <button type="button" onClick={event => { setIsLogoModalOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50">
+                  <Sliders className="h-4 w-4 text-stone-500" /> Change logos & seals
+                </button>
+                <button type="button" onClick={event => { window.open('/', '_blank'); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50">
+                  <Globe className="h-4 w-4 text-stone-500" /> Public portal
+                </button>
+              </div>
+            </details>
           </div>
         </div>
       </div>
 
       {/* Document Type Selector Bar */}
       <div className="bg-white border-b border-stone-200 px-6 py-2.5 shadow-2xs">
-        <div className="max-w-[1400px] mx-auto flex flex-wrap items-center justify-between gap-3">
+        <div className="mx-auto flex max-w-[1400px] flex-wrap items-center justify-between gap-3 px-2 sm:px-0">
           {/* Document Types */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-black tracking-wider text-slate-600 uppercase mr-1">
+          <div role="tablist" aria-label="Document workflows" className="flex w-full flex-nowrap items-center gap-2 overflow-x-auto py-1">
+            <span className="hidden shrink-0 text-[11px] font-black tracking-wider text-slate-600 uppercase mr-1 sm:inline">
               DOCUMENT:
             </span>
 
             {/* 1. Barangay Certification (Photo Match) */}
             <button
               type="button"
+              role="tab"
+              aria-selected={documentType === 'barangay_certification'}
               onClick={() => setDocumentType('barangay_certification')}
-              className={`inline-flex items-center gap-2 text-xs font-semibold px-3.5 py-1.5 rounded-lg transition cursor-pointer border ${
+              className={`inline-flex min-h-11 shrink-0 items-center gap-2 text-xs font-semibold px-3.5 py-1.5 rounded-lg transition cursor-pointer border ${
                 documentType === 'barangay_certification'
                   ? 'bg-blue-600 border-blue-600 text-white font-bold shadow-xs'
                   : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50'
@@ -1016,8 +1033,10 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
             {/* 2. Issued Archive */}
             <button
               type="button"
+              role="tab"
+              aria-selected={documentType === 'issued_archive'}
               onClick={() => setDocumentType('issued_archive')}
-              className={`inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg transition cursor-pointer border ${
+              className={`inline-flex min-h-11 shrink-0 items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg transition cursor-pointer border ${
                 documentType === 'issued_archive'
                   ? 'bg-blue-50 border-blue-500 text-blue-800 font-bold shadow-2xs'
                   : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50'
@@ -1030,8 +1049,10 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
             {/* 3. Masterlist Registry */}
             <button
               type="button"
+              role="tab"
+              aria-selected={documentType === 'masterlist'}
               onClick={() => setDocumentType('masterlist')}
-              className={`inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg transition cursor-pointer border ${
+              className={`inline-flex min-h-11 shrink-0 items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg transition cursor-pointer border ${
                 documentType === 'masterlist'
                   ? 'bg-blue-50 border-blue-500 text-blue-800 font-bold shadow-2xs'
                   : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50'
@@ -1044,8 +1065,10 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
             {/* 4. Transmittal Letter */}
             <button
               type="button"
+              role="tab"
+              aria-selected={documentType === 'transmittal'}
               onClick={() => setDocumentType('transmittal')}
-              className={`inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg transition cursor-pointer border ${
+              className={`inline-flex min-h-11 shrink-0 items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg transition cursor-pointer border ${
                 documentType === 'transmittal'
                   ? 'bg-blue-50 border-blue-500 text-blue-800 font-bold shadow-2xs'
                   : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50'
@@ -1058,8 +1081,10 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
             {/* 5. Raisers Directory */}
             <button
               type="button"
+              role="tab"
+              aria-selected={documentType === 'directory'}
               onClick={() => setDocumentType('directory')}
-              className={`inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg transition cursor-pointer border ${
+              className={`inline-flex min-h-11 shrink-0 items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg transition cursor-pointer border ${
                 documentType === 'directory'
                   ? 'bg-blue-50 border-blue-500 text-blue-800 font-bold shadow-2xs'
                   : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50'
@@ -1072,8 +1097,10 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
             {/* 6. Biosecurity & ASF Report */}
             <button
               type="button"
+              role="tab"
+              aria-selected={documentType === 'biosecurity_report'}
               onClick={() => setDocumentType('biosecurity_report')}
-              className={`inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg transition cursor-pointer border ${
+              className={`inline-flex min-h-11 shrink-0 items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg transition cursor-pointer border ${
                 documentType === 'biosecurity_report'
                   ? 'bg-blue-50 border-blue-500 text-blue-800 font-bold shadow-2xs'
                   : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50'
@@ -1086,8 +1113,10 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
             {/* 7. Official Reports */}
             <button
               type="button"
+              role="tab"
+              aria-selected={documentType === 'official_reports'}
               onClick={() => setDocumentType('official_reports')}
-              className={`inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg transition cursor-pointer border ${
+              className={`inline-flex min-h-11 shrink-0 items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg transition cursor-pointer border ${
                 documentType === 'official_reports'
                   ? 'bg-emerald-700 border-emerald-700 text-white font-bold shadow-xs'
                   : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50'
@@ -1160,23 +1189,25 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
       {/* Contextual Toolbar for Barangay Certification */}
       {documentType === 'barangay_certification' && (
         <div className="bg-slate-50 border-b border-stone-200 px-6 py-3 shadow-2xs no-print space-y-2.5">
-          <div className="max-w-[1400px] mx-auto flex flex-wrap items-center justify-between gap-3">
+          <div className="mx-auto flex max-w-[1400px] flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
             {/* Search and Filters Bar */}
-            <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[300px]">
-              <div className="relative flex-1 min-w-[200px]">
+            <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(16rem,1.5fr)_repeat(3,minmax(10rem,1fr))]">
+              <div className="relative min-w-0">
                 <Search className="w-3.5 h-3.5 text-stone-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   value={tplSearchQuery}
                   onChange={e => setTplSearchQuery(e.target.value)}
                   placeholder="Search templates (Nava, Bisaya, Tuburan, Gatepass...)"
-                  className="w-full pl-8 pr-7 py-1.5 bg-white border border-stone-300 rounded-lg text-xs font-semibold text-slate-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  aria-label="Search certificate templates"
+                  className="min-h-11 w-full rounded-lg border border-stone-300 bg-white py-1.5 pl-8 pr-10 text-xs font-semibold text-slate-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 {tplSearchQuery && (
                   <button
                     type="button"
                     onClick={() => setTplSearchQuery('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700"
+                    aria-label="Clear template search"
+                    className="absolute right-0 top-1/2 flex h-11 w-10 -translate-y-1/2 items-center justify-center text-stone-400 hover:text-stone-700"
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -1187,7 +1218,8 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
               <select
                 value={tplBarangayFilter}
                 onChange={e => setTplBarangayFilter(e.target.value)}
-                className="px-2.5 py-1.5 bg-white border border-stone-300 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                aria-label="Filter templates by barangay"
+                className="min-h-11 w-full min-w-0 rounded-lg border border-stone-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
               >
                 <option value="all">All Barangays</option>
                 {HINUNANGAN_BARANGAYS.map(b => (
@@ -1197,11 +1229,28 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                 ))}
               </select>
 
+              <select
+                value={tplDocTypeFilter}
+                onChange={e => setTplDocTypeFilter(e.target.value)}
+                aria-label="Filter templates by document type"
+                className="min-h-11 w-full min-w-0 rounded-lg border border-stone-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+              >
+                <option value="all">All Certificate Types</option>
+                {Array.from(new Set(templates.map(template => template.documentType).filter(Boolean)))
+                  .sort((left, right) => left.localeCompare(right))
+                  .map(documentType => (
+                    <option key={documentType} value={documentType}>
+                      {documentType}
+                    </option>
+                  ))}
+              </select>
+
               {/* Language Filter */}
               <select
                 value={tplLanguageFilter}
                 onChange={e => setTplLanguageFilter(e.target.value)}
-                className="px-2.5 py-1.5 bg-white border border-stone-300 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                aria-label="Filter templates by language"
+                className="min-h-11 w-full min-w-0 rounded-lg border border-stone-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
               >
                 <option value="all">All Languages</option>
                 <option value="english">English</option>
@@ -1211,66 +1260,52 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
             </div>
 
             {/* Quick Actions */}
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingTemplate(activeTemplate);
-                  setIsTemplateEditorOpen(true);
-                }}
-                className="inline-flex items-center gap-1.5 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-3 py-1.5 rounded-lg transition cursor-pointer shadow-2xs"
-                title="Edit logos, seal positions, text layout, and signatories for this template"
-              >
-                <Sliders className="w-3.5 h-3.5" />
-                <span>Customize Template & Logos</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingTemplate(undefined);
-                  setIsTemplateEditorOpen(true);
-                }}
-                className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg transition cursor-pointer shadow-2xs"
-                title="Create a new custom Barangay Certificate format"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>+ New Template</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsCreateCertModalOpen(true)}
-                className="inline-flex items-center gap-1.5 text-xs font-black text-slate-900 bg-amber-400 hover:bg-amber-300 px-3.5 py-1.5 rounded-lg transition cursor-pointer shadow-xs"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Issue Certificate</span>
-              </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <details className="relative">
+                <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 text-xs font-semibold text-stone-700 hover:bg-stone-50 focus-visible:outline-2 focus-visible:outline-emerald-700 [&::-webkit-details-marker]:hidden">
+                  Template actions <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                </summary>
+                <div className="absolute right-0 z-40 mt-1 w-[min(16rem,calc(100vw-2rem))] rounded-xl border border-stone-200 bg-white p-1.5 shadow-xl">
+                  <button type="button" onClick={event => { setEditingTemplate(activeTemplate); setIsTemplateEditorOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50">
+                    <Sliders className="h-4 w-4 text-stone-500" /> Customize template & logos
+                  </button>
+                  <button type="button" onClick={event => { setEditingTemplate(undefined); setIsTemplateEditorOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50">
+                    <Sparkles className="h-4 w-4 text-stone-500" /> Create new template
+                  </button>
+                </div>
+              </details>
             </div>
           </div>
 
           {/* Dynamic Certificate Selector Control */}
-          <div className="max-w-[1400px] mx-auto flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-stone-200/80">
-            <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[320px]">
-              <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5 shrink-0">
+          <div className="mx-auto flex max-w-[1400px] flex-col items-stretch justify-between gap-3 border-t border-stone-200/80 pt-2 sm:flex-row sm:items-center">
+            <div className="flex min-w-0 flex-1 flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+              <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-slate-700">
                 <Layers className="w-4 h-4 text-blue-600" />
                 CERTIFICATES ({templates.length}):
               </span>
 
               {/* Dynamic Combo Box / Dropdown Select */}
-              <div className="relative flex-1 max-w-lg">
+              <div className="relative w-full min-w-0 flex-1 sm:max-w-lg">
                 <select
                   value={selectedTemplateId}
                   onChange={e => handleSelectTemplate(e.target.value)}
-                  className="w-full pl-3 pr-8 py-1.5 bg-white border-2 border-blue-500/60 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-2xs cursor-pointer"
+                  title={activeTemplate?.name || 'Select a certificate template'}
+                  className="min-h-11 w-full min-w-0 rounded-xl border-2 border-blue-500/60 bg-white py-1.5 pl-3 pr-8 text-xs font-bold text-slate-900 shadow-2xs focus:outline-none focus:ring-2 focus:ring-blue-600 cursor-pointer"
                 >
-                  {filteredTemplates.map(tpl => (
+                  {templateOptions.map(tpl => (
                     <option key={tpl.id} value={tpl.id}>
-                      {tpl.name} {tpl.barangay && tpl.barangay !== 'All' ? `(Brgy. ${tpl.barangay})` : ''} {tpl.isDefaultPreset ? '★' : ''}
+                      {tpl.name} {tpl.id === selectedTemplateId && !filteredTemplates.some(item => item.id === tpl.id) ? '(current selection)' : ''} {tpl.barangay && tpl.barangay !== 'All' ? `(Brgy. ${tpl.barangay})` : ''} {tpl.isDefaultPreset ? '★' : ''}
                     </option>
                   ))}
                 </select>
               </div>
+
+              {activeTemplate && (
+                <p className="break-words text-xs font-semibold text-blue-900 sm:hidden">
+                  Selected: {activeTemplate.name}
+                </p>
+              )}
 
               {/* Active Badge */}
               {activeTemplate && (
@@ -1284,36 +1319,51 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                   )}
                 </div>
               )}
+              {!isLoadingTemplates && templateLoadError && (
+                <p role="status" className="text-xs text-rose-700 sm:col-span-2 xl:col-span-4">
+                  Template list could not be loaded: {templateLoadError}
+                </p>
+              )}
+              {!isLoadingTemplates && !templateLoadError && templates.length === 0 && (
+                <p role="status" className="text-xs text-amber-800 sm:col-span-2 xl:col-span-4">
+                  No saved templates are available. The built-in certificate layout remains available.
+                </p>
+              )}
+              {isLoadingTemplates && (
+                <p role="status" className="text-xs text-stone-600 sm:col-span-2 xl:col-span-4">
+                  Loading saved certificate templates…
+                </p>
+              )}
             </div>
           </div>
         </div>
       )}
 
       {/* Main Document Body Canvas */}
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 pt-6">
+      <div className="mx-auto max-w-[1400px] px-3 pt-4 sm:px-6 sm:pt-6">
         {/* ========================================================================= */}
         {/* 1. BARANGAY CERTIFICATION VIEW (Dynamic & Authentic Match to Photos) */}
         {/* ========================================================================= */}
         {documentType === 'barangay_certification' && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between px-2 no-print">
+            <div className="flex flex-col justify-between gap-3 px-2 no-print sm:flex-row sm:items-center">
               <div>
-                <h2 className="text-sm font-black text-slate-800 uppercase tracking-wide">
-                  Live Certificate Rendering & Print View: {activeTemplate?.name || 'Barangay Certificate'}
+                <h2 className="text-base font-bold tracking-tight text-slate-900">
+                  Certificate preview
                 </h2>
                 <p className="text-xs text-slate-500">
-                  {activeTemplate?.description || 'Authentic layout with dynamic seals, signatories, and ordinance references'}
+                  {activeTemplate?.description || 'Review the official layout, seals, signatories, and certificate details before printing.'}
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => {
                     setEditingTemplate(activeTemplate);
                     setIsTemplateEditorOpen(true);
                   }}
-                  className="px-3 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 font-bold text-xs shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-bold text-purple-700 shadow-xs transition hover:bg-purple-100"
                 >
                   <Edit3 className="w-3.5 h-3.5" />
                   <span>Edit Layout / Logos</span>
@@ -1322,7 +1372,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                 <button
                   type="button"
                   onClick={handleTriggerPrint}
-                  className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 transition cursor-pointer"
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-emerald-700 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800"
                 >
                   <Printer className="w-4 h-4" />
                   <span>Print Document</span>
@@ -1332,7 +1382,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                   type="button"
                   onClick={handleExportPdf}
                   disabled={isExportingPdf}
-                  className="px-4 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-blue-700 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-blue-800 disabled:opacity-50"
                 >
                   <FileText className="w-4 h-4" />
                   <span>Download PDF</span>
@@ -1475,7 +1525,8 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                               type="button"
                               onClick={() => handleViewCertificate(cert)}
                               title="View & Print Certificate"
-                              className="p-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold transition cursor-pointer"
+                              aria-label={`View and print certificate ${cert.certificateNo}`}
+                              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-blue-50 p-1.5 font-bold text-blue-700 transition hover:bg-blue-100"
                             >
                               <Eye className="w-4 h-4" />
                             </button>
@@ -1483,7 +1534,8 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                               type="button"
                               onClick={() => handleEditCertificate(cert)}
                               title="Edit Certificate"
-                              className="p-1.5 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 font-bold transition cursor-pointer"
+                              aria-label={`Edit certificate ${cert.certificateNo}`}
+                              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-amber-50 p-1.5 font-bold text-amber-700 transition hover:bg-amber-100"
                             >
                               <Edit3 className="w-4 h-4" />
                             </button>
@@ -1491,7 +1543,8 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                               type="button"
                               onClick={() => setCertToDelete(cert)}
                               title="Delete Record"
-                              className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 font-bold transition cursor-pointer"
+                              aria-label={`Delete certificate ${cert.certificateNo}`}
+                              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg p-1.5 font-bold text-rose-600 transition hover:bg-rose-50"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -1527,7 +1580,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => window.print()}
+                    onClick={() => triggerScopedPrint('official-report')}
                     className="inline-flex items-center gap-2 text-xs font-bold text-slate-800 bg-stone-100 hover:bg-stone-200 border border-stone-300 px-3.5 py-2 rounded-xl transition cursor-pointer"
                   >
                     <Printer className="w-4 h-4 text-stone-600" />
@@ -1632,6 +1685,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
             {/* Printable Document Wrapper */}
             <div
               ref={officialReportPrintRef}
+              data-print-document="official-report"
               className="bg-white rounded-2xl border border-stone-300 p-8 sm:p-12 shadow-sm space-y-8 font-serif"
             >
               {/* Official Municipal Header */}
@@ -1835,6 +1889,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
         {documentType === 'masterlist' && (
           <div
             ref={printableReportRef}
+            data-print-document="masterlist"
             className="bg-white rounded-xl border border-stone-300 p-6 sm:p-8 space-y-6 shadow-sm font-sans"
           >
             {/* Masterlist Official Header */}
@@ -2049,7 +2104,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                    onClick={() => triggerScopedPrint('biosecurity-report')}
                   className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 transition cursor-pointer"
                 >
                   <Printer className="w-4 h-4" />
@@ -2058,7 +2113,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    window.print();
+                    triggerScopedPrint('biosecurity-report');
                   }}
                   className="px-4 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 transition cursor-pointer"
                 >
@@ -2070,6 +2125,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
 
             <div
               ref={biosecurityReportRef}
+              data-print-document="biosecurity-report"
               className="bg-white rounded-xl border border-stone-300 p-6 sm:p-8 space-y-6 shadow-sm font-sans"
             >
               {/* Header */}

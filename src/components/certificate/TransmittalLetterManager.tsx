@@ -102,6 +102,8 @@ export const TransmittalLetterManager: React.FC<TransmittalLetterManagerProps> =
 
   // Trigger Print
   const handlePrint = () => {
+    document.body.dataset.printTarget = 'transmittal';
+    window.addEventListener('afterprint', () => delete document.body.dataset.printTarget, { once: true });
     window.print();
   };
 
@@ -109,6 +111,8 @@ export const TransmittalLetterManager: React.FC<TransmittalLetterManagerProps> =
   const handleExportPdf = () => {
     setIsExportingPdf(true);
     try {
+      document.body.dataset.printTarget = 'transmittal';
+      window.addEventListener('afterprint', () => delete document.body.dataset.printTarget, { once: true });
       window.print();
       onNotice?.(`Transmittal Letter ${selectedLetter?.refNo} ready for PDF export & printing!`);
     } catch (err) {
@@ -405,6 +409,7 @@ For your information, verification, and official file.`,
           {selectedLetter ? (
             <div
               ref={printRef}
+              data-print-document="transmittal"
               className="bg-white rounded-xl border border-stone-300 p-8 sm:p-12 space-y-6 shadow-sm font-serif max-w-[820px] mx-auto text-stone-900 print:shadow-none print:border-none print:p-0 print:m-0"
             >
               {/* Header */}

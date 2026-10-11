@@ -285,7 +285,8 @@ export const DynamicCertificateView: React.FC<DynamicCertificateViewProps> = ({
     <div
       ref={containerRef}
       id="printable-certificate-root"
-      className="printable-certificate-container bg-white text-stone-900 border border-stone-300 shadow-xl rounded-xl max-w-[820px] mx-auto p-8 sm:p-12 relative overflow-hidden font-serif select-text transition-all"
+      data-print-document="certificate"
+      className="printable-certificate-container mx-auto w-full max-w-[820px] overflow-hidden rounded-xl border border-stone-300 bg-white p-8 font-serif text-stone-900 shadow-xl relative select-text transition-all sm:p-12"
       style={{
         minHeight: '1050px',
         backgroundColor: '#ffffff',
