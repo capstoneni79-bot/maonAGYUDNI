@@ -601,7 +601,7 @@ I am connected to your live municipal swine database, GIS coordinates, ASF risk 
           }}
           aria-label="Open Biosecurity Assistant"
           title="Open Biosecurity Assistant"
-          className="fixed z-40 flex items-center justify-center rounded-full bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-800 shadow-xl hover:shadow-2xl border-2 border-emerald-500/30 transition-transform hover:scale-105 active:scale-95 focus:outline-hidden focus:ring-4 focus:ring-emerald-500/30"
+          className="biosecurity-assistant-launcher fixed z-40 flex items-center justify-center rounded-full bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-800 shadow-xl hover:shadow-2xl border-2 border-emerald-500/30 transition-transform hover:scale-105 active:scale-95 focus:outline-hidden focus:ring-4 focus:ring-emerald-500/30"
           style={{
             width: `${BUTTON_SIZE}px`,
             height: `${BUTTON_SIZE}px`,
@@ -637,7 +637,7 @@ I am connected to your live municipal swine database, GIS coordinates, ASF risk 
               ? 'DA Hinunangan Super Admin Configuration Assistant Panel'
               : 'DA Hinunangan Biosecurity Assistant Panel'
           }
-          className={`fixed z-40 w-[calc(100vw-24px)] sm:w-[440px] bg-white rounded-3xl shadow-2xl border border-stone-200 flex flex-col overflow-hidden transition-[height] duration-200 ease-in-out ${
+          className={`biosecurity-assistant-panel fixed z-40 w-[calc(100vw-24px)] sm:w-[440px] bg-white rounded-3xl shadow-2xl border border-stone-200 flex flex-col overflow-hidden transition-[height] duration-200 ease-in-out ${
             position ? '' : 'bottom-4 right-4 sm:bottom-6 sm:right-6'
           } ${
             isMinimized ? 'h-14 sm:h-16' : 'h-[580px] max-h-[85vh]'

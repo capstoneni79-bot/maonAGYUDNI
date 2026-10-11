@@ -23,6 +23,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  MoreVertical,
   X,
   MapPin,
   SlidersHorizontal,
@@ -158,6 +159,18 @@ type EnhancedSwineRecord = SwineRecord & {
   computedIsReady: boolean;
 };
 
+type SwineRecordAction =
+  | 'view'
+  | 'farmer'
+  | 'map'
+  | 'print'
+  | 'certificate'
+  | 'edit'
+  | 'ready'
+  | 'sold'
+  | 'archive'
+  | 'delete';
+
 const getFarmerGroupKey = (record: SwineRecord): string => {
   if (record.farmerId) return `farmer:${record.farmerId}`;
   const normalize = (value: string | undefined) => (value || '').trim().toLocaleLowerCase().replace(/\s+/g, ' ');
@@ -232,17 +245,26 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   const [dbError, setDbError] = useState<string | null>(null);
   const [refreshNotice, setRefreshNotice] = useState<string>('');
   const moreActionsRef = useRef<HTMLDetailsElement>(null);
+  const [mobileActionMenuRecordId, setMobileActionMenuRecordId] = useState<string | null>(null);
+  const mobileActionTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const closeMenuOnOutsideClick = (event: PointerEvent) => {
       if (moreActionsRef.current && !moreActionsRef.current.contains(event.target as Node)) {
         moreActionsRef.current.open = false;
       }
+      if (!(event.target instanceof Element) || !event.target.closest('[data-record-actions]')) {
+        setMobileActionMenuRecordId(null);
+      }
     };
     const closeMenuOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && moreActionsRef.current?.open) {
         moreActionsRef.current.open = false;
         moreActionsRef.current.querySelector('summary')?.focus();
+      }
+      if (event.key === 'Escape' && mobileActionMenuRecordId) {
+        setMobileActionMenuRecordId(null);
+        mobileActionTriggerRef.current?.focus();
       }
     };
 
@@ -252,6 +274,11 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
       document.removeEventListener('pointerdown', closeMenuOnOutsideClick);
       document.removeEventListener('keydown', closeMenuOnEscape);
     };
+  }, [mobileActionMenuRecordId]);
+
+  useEffect(() => {
+    document.body.classList.add('records-view-active');
+    return () => document.body.classList.remove('records-view-active');
   }, []);
 
   const handleFetchFromDatabase = async (isManual = false) => {
@@ -893,6 +920,33 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     onRefresh();
   };
 
+  const performRecordAction = (
+    action: SwineRecordAction,
+    swine: SwineRecord,
+    farmerKey: string
+  ) => {
+    if (action === 'view') setViewingRecord(swine);
+    else if (action === 'farmer') {
+      const nextExpandedKey = expandedFarmerKey === farmerKey ? null : farmerKey;
+      setExpandedFarmerKey(nextExpandedKey);
+      if (nextExpandedKey) {
+        document.getElementById(`mobile-farmer-group-${encodeURIComponent(farmerKey)}`)?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+        });
+      }
+    }
+    else if (action === 'map' && onViewOnMap) onViewOnMap(swine);
+    else if (action === 'print') setPrintSingleRecord(swine);
+    else if (action === 'certificate') onIssueCertificate(swine);
+    else if (action === 'edit' && currentRole !== 'agent') onEditSwine(swine);
+    else if (action === 'ready' && currentRole !== 'agent' && swine.status !== 'sold') handleToggleSell(swine);
+    else if (action === 'sold' && currentRole !== 'agent' && swine.status !== 'sold') handleMarkSold(swine);
+    else if (action === 'archive' && currentRole !== 'agent') handleToggleArchive(swine.id);
+    else if (action === 'delete' && currentRole === 'admin') setDeleteConfirmRecord(swine);
+    setMobileActionMenuRecordId(null);
+  };
+
   const renderExpandedFarmerRow = (farmerKey: string, rowId: string) => {
     const group = groupByKey.get(farmerKey);
     if (!group) return null;
@@ -1268,7 +1322,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 px-3 py-6 sm:px-4">
+    <div className="swine-records-page mx-auto max-w-7xl space-y-6 px-3 py-6 sm:px-4">
       {/* Top Header & Actions */}
       <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-stone-200 shadow-xs">
         <div>
@@ -1300,23 +1354,27 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             </button>
           )}
 
-          {/* Refresh Records Button (Real database query) */}
-          <button
-            type="button"
-            onClick={() => handleFetchFromDatabase(true)}
-            disabled={isRefreshingDb || isLoadingDb}
-            className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-stone-300 bg-white px-3.5 py-1.5 text-xs font-bold text-stone-800 shadow-2xs transition hover:bg-stone-100 disabled:opacity-50"
-            title="Fetch latest records directly from database"
-          >
-            <RotateCw className={`w-3.5 h-3.5 text-emerald-700 ${isRefreshingDb ? 'animate-spin' : ''}`} />
-            <span>{isRefreshingDb ? t('loading_records', 'Loading Records...') : `↻ ${t('records_refresh', 'Refresh Records')}`}</span>
-          </button>
-
           <details className="relative" ref={moreActionsRef}>
             <summary className="flex min-h-11 cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-3 text-xs font-semibold text-stone-700 hover:bg-stone-50 focus-visible:outline-2 focus-visible:outline-emerald-700 [&::-webkit-details-marker]:hidden">
               More actions <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
             </summary>
             <div className="absolute right-0 z-40 mt-2 max-h-[min(70vh,36rem)] w-[min(24rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-stone-200 bg-white p-3 shadow-xl">
+              <div className="space-y-1 border-b border-stone-100 pb-2">
+                <p className="px-2 text-[10px] font-bold uppercase tracking-wide text-stone-500">Records</p>
+                <button
+                  type="button"
+                  onClick={event => {
+                    void handleFetchFromDatabase(true);
+                    event.currentTarget.closest('details')?.removeAttribute('open');
+                  }}
+                  disabled={isRefreshingDb || isLoadingDb}
+                  className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-xs font-semibold text-stone-800 hover:bg-emerald-50 disabled:opacity-50"
+                  title="Fetch latest records directly from database"
+                >
+                  <RotateCw className={`h-4 w-4 text-emerald-700 ${isRefreshingDb ? 'animate-spin' : ''}`} />
+                  {isRefreshingDb ? t('loading_records', 'Loading Records...') : t('records_refresh', 'Refresh Records')}
+                </button>
+              </div>
               <div className="space-y-1">
                 <p className="px-2 text-[10px] font-bold uppercase tracking-wide text-stone-500">Display</p>
                 <button
@@ -1612,14 +1670,14 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             </div>
 
             {/* Dedicated Search Scope Selector */}
-            <div className="flex min-h-11 items-center gap-1 self-start rounded-xl border border-stone-200 bg-stone-100 p-1 text-xs md:self-auto">
+            <div className="flex min-h-11 w-full flex-wrap items-center gap-1 self-start rounded-xl border border-stone-200 bg-stone-100 p-1 text-xs md:w-auto md:flex-nowrap md:self-auto">
               <span className="text-[10px] font-bold uppercase text-stone-400 px-1.5 tracking-wider hidden lg:inline">
                 {t('records_scope', 'Scope')}:
               </span>
               <button
                 type="button"
                 onClick={() => setSearchScope('all')}
-                className={`min-h-9 rounded-lg px-2.5 py-1.5 font-bold text-xs transition cursor-pointer ${
+                className={`min-h-11 flex-1 rounded-lg px-2 py-1.5 font-bold text-xs transition cursor-pointer ${
                   searchScope === 'all'
                     ? 'bg-white text-stone-900 shadow-2xs'
                     : 'text-stone-600 hover:text-stone-900'
@@ -1630,7 +1688,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               <button
                 type="button"
                 onClick={() => setSearchScope('tag')}
-                className={`inline-flex min-h-9 items-center gap-1 rounded-lg px-2.5 py-1.5 font-bold text-xs transition cursor-pointer ${
+                className={`inline-flex min-h-11 flex-1 items-center justify-center gap-1 rounded-lg px-2 py-1.5 font-bold text-xs transition cursor-pointer ${
                   searchScope === 'tag'
                     ? 'bg-emerald-800 text-white shadow-2xs'
                     : 'text-stone-600 hover:text-emerald-800'
@@ -1642,7 +1700,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               <button
                 type="button"
                 onClick={() => setSearchScope('owner')}
-                className={`inline-flex min-h-9 items-center gap-1 rounded-lg px-2.5 py-1.5 font-bold text-xs transition cursor-pointer ${
+                className={`inline-flex min-h-11 flex-1 items-center justify-center gap-1 rounded-lg px-2 py-1.5 font-bold text-xs transition cursor-pointer ${
                   searchScope === 'owner'
                     ? 'bg-emerald-800 text-white shadow-2xs'
                     : 'text-stone-600 hover:text-emerald-800'
@@ -1882,6 +1940,9 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
         {/* Live Filter Summary & Counter */}
         <div className="flex flex-wrap items-center justify-between pt-1 border-t border-stone-100 text-xs text-stone-500">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-1 font-semibold text-stone-700">
+              {activeFilterCount} active {activeFilterCount === 1 ? 'filter' : 'filters'}
+            </span>
             <span>
               {t('records_showing', {
                 start: startRecordIndex,
@@ -1998,8 +2059,271 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
         </div>
       )}
 
+      {/* Phone card view shares the same filtered, grouped, and paginated records as the desktop table. */}
+      <section className="mobile-record-cards space-y-3" aria-label="Swine records">
+        {isLoadingDb && paginatedRecords.length === 0 ? (
+          <div className="rounded-2xl border border-stone-200 bg-white p-6 text-center text-sm text-stone-600">
+            Loading swine records…
+          </div>
+        ) : paginatedRecords.length === 0 ? (
+          <div className="rounded-2xl border border-stone-200 bg-white p-6 text-center text-sm text-stone-600">
+            No swine records match the current filters.
+          </div>
+        ) : paginatedRecords.map(swine => {
+          const farmerKey = getFarmerGroupKey(swine);
+          const farmerGroup = groupByKey.get(farmerKey);
+          const farmerSwineCount = farmerGroup?.records.length ?? 1;
+          const isFarmerExpanded = expandedFarmerKey === farmerKey;
+          const isFarmerRepresentative = farmerGroup?.records[0]?.id === swine.id;
+          const isSelected = selectedRecordIds.has(swine.id);
+          const displayStatus = swine.status === 'sold'
+            ? getStatusLabel('sold')
+            : swine.computedIsReady
+              ? t('records_ready_to_sell', 'Ready to Sell')
+              : getStatusLabel(swine.status || 'active');
+          const menuActions: { action: SwineRecordAction; label: string; destructive?: boolean }[] = [
+            { action: 'view', label: 'View Details' },
+            ...(farmerKey ? [{ action: 'farmer' as const, label: 'View Farmer’s Swine' }] : []),
+            ...(currentRole !== 'agent' ? [{ action: 'edit' as const, label: 'Edit Record' }] : []),
+            ...(onViewOnMap ? [{ action: 'map' as const, label: 'View on GIS Map' }] : []),
+            { action: 'print', label: 'Print Swine Record' },
+            { action: 'certificate', label: 'Generate Certificate' },
+            ...(currentRole !== 'agent' && swine.status !== 'sold'
+              ? [
+                  { action: 'ready' as const, label: swine.readyToSell ? 'Remove Ready to Sell' : 'Mark Ready to Sell' },
+                  { action: 'sold' as const, label: 'Mark as Sold' },
+                ]
+              : []),
+            ...(currentRole !== 'agent'
+              ? [{ action: 'archive' as const, label: swine.isArchived ? 'Restore Record' : 'Archive Record' }]
+              : []),
+            ...(currentRole === 'admin' ? [{ action: 'delete' as const, label: 'Delete Record', destructive: true }] : []),
+          ];
+
+          return (
+            <article
+              key={swine.id}
+              id={`mobile-swine-${swine.id}`}
+              className="relative rounded-2xl border border-stone-200 bg-white p-4 shadow-xs"
+            >
+              <div className="flex min-w-0 items-start gap-2.5">
+                {currentRole === 'admin' && (
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => handleToggleSelectRecord(swine.id)}
+                    className="mt-1 h-5 w-5 shrink-0 accent-emerald-700"
+                    aria-label={`Select record ${swine.computedPigId || swine.pigIdTag || swine.earTagNo}`}
+                  />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-500">Pig ID Tag</p>
+                  <p className="break-all font-mono text-base font-black leading-snug text-emerald-950">
+                    {swine.computedPigId || swine.pigIdTag || swine.earTagNo || 'ID unavailable'}
+                  </p>
+                  {swine.earTagNo && swine.earTagNo !== swine.computedPigId && (
+                    <p className="mt-0.5 break-all text-[11px] text-stone-500">Ear tag: {swine.earTagNo}</p>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-start gap-1.5">
+                  {swine.isSynced === false ? (
+                    <span className="mt-1 inline-flex min-h-6 items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 text-[10px] font-bold text-amber-900">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-600" />
+                      Pending
+                    </span>
+                  ) : (
+                    <span className="mt-1 inline-flex min-h-6 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 text-[10px] font-semibold text-emerald-800">
+                      <CheckCircle2 className="h-3 w-3" />
+                      Synced
+                    </span>
+                  )}
+                  <div className="relative" data-record-actions>
+                    <button
+                      ref={mobileActionMenuRecordId === swine.id ? mobileActionTriggerRef : undefined}
+                      type="button"
+                      onClick={() => setMobileActionMenuRecordId(current => current === swine.id ? null : swine.id)}
+                      aria-label={`Actions for ${swine.computedPigId || swine.pigIdTag || swine.earTagNo}`}
+                      aria-haspopup="menu"
+                      aria-expanded={mobileActionMenuRecordId === swine.id}
+                      className="flex h-11 w-11 items-center justify-center rounded-xl border border-stone-300 bg-white text-stone-700 hover:bg-stone-100 focus-visible:outline-2 focus-visible:outline-emerald-700"
+                    >
+                      <MoreVertical className="h-5 w-5" aria-hidden="true" />
+                    </button>
+                    {mobileActionMenuRecordId === swine.id && (
+                      <div
+                        role="menu"
+                        aria-label={`Record actions for ${swine.computedPigId || swine.pigIdTag || swine.earTagNo}`}
+                        className="absolute right-0 top-full z-50 mt-1 max-h-[min(65vh,28rem)] w-[min(18rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-stone-200 bg-white p-1.5 shadow-xl"
+                      >
+                        {menuActions.map(item => (
+                          <React.Fragment key={item.action}>
+                            {(item.action === 'map' || item.action === 'print' || item.action === 'ready' || item.action === 'archive' || item.action === 'delete') && (
+                              <div className="my-1 border-t border-stone-100" role="separator" />
+                            )}
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => performRecordAction(item.action, swine, farmerKey)}
+                              className={`flex min-h-11 w-full items-center rounded-lg px-3 text-left text-sm font-medium focus-visible:outline-2 focus-visible:outline-emerald-700 ${
+                                item.destructive
+                                  ? 'text-red-700 hover:bg-red-50'
+                                  : 'text-stone-800 hover:bg-stone-100'
+                              }`}
+                            >
+                              {item.label}
+                            </button>
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-stone-100 pt-3 text-sm">
+                <div className="col-span-2 min-w-0">
+                  <span className="block text-[10px] font-semibold uppercase tracking-wide text-stone-500">Farmer</span>
+                  <button
+                    type="button"
+                    disabled={!farmerKey}
+                    onClick={() => farmerKey && performRecordAction('farmer', swine, farmerKey)}
+                    aria-expanded={isFarmerExpanded}
+                    className="min-h-11 max-w-full break-words text-left font-bold leading-snug text-stone-900 underline decoration-stone-300 underline-offset-2 disabled:no-underline"
+                  >
+                    {swine.farmerName || 'Farmer name unavailable'}
+                  </button>
+                  {farmerSwineCount > 1 && (
+                    <span className="ml-2 inline-flex rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-semibold text-stone-700">
+                      {farmerSwineCount} swine
+                    </span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <span className="block text-[10px] font-semibold uppercase tracking-wide text-stone-500">Barangay</span>
+                  <span className="break-words font-medium text-stone-800">{swine.barangay || '—'}</span>
+                </div>
+                <div className="min-w-0">
+                  <span className="block text-[10px] font-semibold uppercase tracking-wide text-stone-500">Farm</span>
+                  <span className="break-words font-medium text-stone-800">{swine.farmName || swine.farmType || '—'}</span>
+                </div>
+                <div className="min-w-0">
+                  <span className="block text-[10px] font-semibold uppercase tracking-wide text-stone-500">Breed</span>
+                  <span className="break-words font-medium text-stone-800">{swine.breed || 'Large White Cross'}</span>
+                </div>
+                <div className="min-w-0">
+                  <span className="block text-[10px] font-semibold uppercase tracking-wide text-stone-500">Sex</span>
+                  <span className="break-words font-medium capitalize text-stone-800">
+                    {swine.gender === 'male' ? 'Male (Intact)' : swine.gender === 'female' ? 'Female (Gilt/Sow)' : 'Castrated'}
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <span className="block text-[10px] font-semibold uppercase tracking-wide text-stone-500">Registered</span>
+                  <span className="break-words font-medium text-stone-800">
+                    {swine.registeredAt ? new Date(swine.registeredAt).toLocaleDateString() : '—'}
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <span className="block text-[10px] font-semibold uppercase tracking-wide text-stone-500">Status</span>
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    swine.status === 'sold'
+                      ? 'bg-stone-200 text-stone-800'
+                      : swine.computedIsReady
+                        ? 'bg-amber-100 text-amber-900'
+                        : 'bg-emerald-50 text-emerald-800'
+                  }`}>
+                    {displayStatus}
+                  </span>
+                </div>
+              </div>
+
+              {isFarmerExpanded && isFarmerRepresentative && farmerGroup && (
+                <section
+                  id={`mobile-farmer-group-${encodeURIComponent(farmerKey)}`}
+                  className="mt-3 space-y-2 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3"
+                  aria-label={`Swine records for ${farmerGroup.farmer.farmerName}`}
+                >
+                  <h3 className="text-xs font-bold text-emerald-950">Farmer’s swine ({farmerSwineCount})</h3>
+                  <div className="space-y-1">
+                    {farmerGroup.records.map(groupRecord => (
+                      <button
+                        key={groupRecord.id}
+                        type="button"
+                        onClick={() => document.getElementById(`mobile-swine-${groupRecord.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                        className="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg px-2 text-left text-xs font-medium text-stone-800 hover:bg-white"
+                      >
+                        <span className="break-all font-mono">{groupRecord.computedPigId || groupRecord.pigIdTag || groupRecord.earTagNo}</span>
+                        <span className="shrink-0 text-stone-500">{groupRecord.breed || 'Breed unavailable'}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {currentRole !== 'agent' && (
+                    <button
+                      type="button"
+                      onClick={() => onAddSwine(farmerGroup.farmer)}
+                      className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-bold text-white hover:bg-emerald-800"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add Swine
+                    </button>
+                  )}
+                </section>
+              )}
+
+              <details className="mt-3 border-t border-stone-100 pt-2">
+                <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-2 text-xs font-semibold text-emerald-800 focus-visible:outline-2 focus-visible:outline-emerald-700">
+                  <span>Additional record details</span>
+                  <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                </summary>
+                <div className="grid grid-cols-1 gap-2 border-t border-stone-100 pt-3 text-xs sm:grid-cols-2">
+                  {[
+                    ['Date of birth', swine.birthDate ? formatDobDisplay(swine.birthDate) : 'Not recorded'],
+                    ['Age', swine.computedAgeLabel || 'Unavailable'],
+                    ['Estimated weight', swine.computedEstimatedWeight || '—'],
+                    ['Actual weight', swine.computedActualWeight ? `${swine.computedActualWeight} kg` : '—'],
+                    ['Swine type', getSwineTypeLabel(swine.swineType)],
+                    ['Farm scale', getFarmScaleLabel(swine.computedFarmScale)],
+                    ['ASF zone', getAsfZoneLabel(swine.computedAsfZone)],
+                    ['Farmer contact', swine.farmerContact || '—'],
+                    ['Farmer address', swine.farmerAddress || '—'],
+                    ['RSBSA ID', swine.rsbsaId || '—'],
+                    ['Farm name', swine.farmName || '—'],
+                    ['Farm type', swine.farmType || '—'],
+                    ['Pen capacity', swine.penCapacity ?? '—'],
+                    ['Coordinates', Number.isFinite(swine.latitude) && Number.isFinite(swine.longitude) ? `${swine.latitude}, ${swine.longitude}` : '—'],
+                    ['Notes', swine.notes || '—'],
+                  ].map(([label, value]) => (
+                    <div key={label} className="min-w-0 break-words rounded-lg bg-stone-50 p-2">
+                      <span className="font-semibold text-stone-600">{label}: </span>
+                      <span className="text-stone-800">{value}</span>
+                    </div>
+                  ))}
+                  {activeFields.map(item => (
+                    <div key={item.field.id} className="min-w-0 break-words rounded-lg bg-stone-50 p-2">
+                      <span className="font-semibold text-stone-600">{item.field.label}: </span>
+                      <span className="text-stone-800">
+                        {formatFieldValue(getFieldValue(swine, item.field), item.field) || '—'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+
+              <div className="mt-2 flex justify-end border-t border-stone-100 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setViewingRecord(swine)}
+                  className="inline-flex min-h-11 items-center justify-center rounded-lg px-3 text-sm font-bold text-emerald-800 hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-emerald-700"
+                >
+                  View Details
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </section>
+
       {/* Primary Swine Records Table */}
-      <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
+      <div className="desktop-record-table bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs whitespace-nowrap min-w-[1250px]">
             <thead className="bg-stone-100/90 text-stone-700 font-bold border-b border-stone-200 uppercase tracking-wider text-[10px]">
@@ -2726,40 +3050,46 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
+                aria-label={t('pagination_first', 'First page')}
                 disabled={validCurrentPage <= 1}
                 onClick={() => setCurrentPage(1)}
-                className="px-2.5 py-1 rounded-lg border border-stone-300 bg-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-stone-100 cursor-pointer shadow-2xs"
+                className="pagination-edge-control min-h-11 px-2.5 py-1 rounded-lg border border-stone-300 bg-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-stone-100 cursor-pointer shadow-2xs"
               >
                 {t('pagination_first', 'First')}
               </button>
               <button
                 type="button"
+                aria-label={t('pagination_prev', 'Previous page')}
                 disabled={validCurrentPage <= 1}
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                className="p-1 rounded-lg border border-stone-300 bg-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-stone-100 cursor-pointer shadow-2xs"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg border border-stone-300 bg-white px-2 font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-stone-100 cursor-pointer shadow-2xs"
                 title={t('pagination_prev', 'Previous')}
               >
                 <ChevronLeft className="w-4 h-4" />
+                <span className="pagination-button-label">{t('pagination_prev', 'Previous')}</span>
               </button>
 
-              <span className="px-3 py-1 font-bold text-emerald-900 bg-emerald-100 rounded-lg">
-                {validCurrentPage}
+              <span className="min-h-11 px-3 py-1 font-bold text-emerald-900 bg-emerald-100 rounded-lg inline-flex items-center" aria-current="page">
+                {t('pagination_page', 'Page')} {validCurrentPage} {t('pagination_of', 'of')} {totalPages}
               </span>
 
               <button
                 type="button"
+                aria-label={t('pagination_next', 'Next page')}
                 disabled={validCurrentPage >= totalPages}
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                className="p-1 rounded-lg border border-stone-300 bg-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-stone-100 cursor-pointer shadow-2xs"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg border border-stone-300 bg-white px-2 font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-stone-100 cursor-pointer shadow-2xs"
                 title={t('pagination_next', 'Next')}
               >
                 <ChevronRight className="w-4 h-4" />
+                <span className="pagination-button-label">{t('pagination_next', 'Next')}</span>
               </button>
               <button
                 type="button"
+                aria-label={t('pagination_last', 'Last page')}
                 disabled={validCurrentPage >= totalPages}
                 onClick={() => setCurrentPage(totalPages)}
-                className="px-2.5 py-1 rounded-lg border border-stone-300 bg-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-stone-100 cursor-pointer shadow-2xs"
+                className="pagination-edge-control min-h-11 px-2.5 py-1 rounded-lg border border-stone-300 bg-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-stone-100 cursor-pointer shadow-2xs"
               >
                 {t('pagination_last', 'Last')}
               </button>
