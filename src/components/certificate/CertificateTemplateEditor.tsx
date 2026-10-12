@@ -90,6 +90,160 @@ const createBlankTemplate = (barangay = 'All'): CertificateTemplate => {
   };
 };
 
+const IMPORT_TEMPLATE_SIZE_LIMIT = 5 * 1024 * 1024;
+
+type ImportedTemplateKind = 'json' | 'html' | 'docx' | 'pdf' | 'image' | 'unknown';
+
+interface ImportedTemplateMetadata {
+  kind: ImportedTemplateKind;
+  title: string;
+  description: string;
+  documentType: string;
+  barangay: string;
+  bodyTemplate: string;
+  warnings: string[];
+  isReferenceOnly: boolean;
+}
+
+const formatImportSize = (bytes: number) => {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let size = bytes / 1024;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+};
+
+const sanitizeImportedHtml = (rawHtml: string) => {
+  const html = rawHtml
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/\son\w+=['"][^'"]*['"]/gi, '')
+    .replace(/javascript:/gi, '');
+
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('script,style,iframe,object,embed,svg,link,meta').forEach(el => el.remove());
+  doc.querySelectorAll('*').forEach(el => {
+    Array.from(el.attributes).forEach(attr => {
+      if (/^on/i.test(attr.name)) {
+        el.removeAttribute(attr.name);
+        return;
+      }
+      if ((attr.name === 'href' || attr.name === 'src') && /javascript:/i.test(attr.value)) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  return doc;
+};
+
+const parseImportedTemplateFile = async (file: File): Promise<ImportedTemplateMetadata> => {
+  if (file.size > IMPORT_TEMPLATE_SIZE_LIMIT) {
+    throw new Error(`The selected file exceeds the 5 MB size limit. Please choose a smaller template import.`);
+  }
+
+  const fileName = file.name || 'Imported template';
+  const lowerName = fileName.toLowerCase();
+
+  if (lowerName.endsWith('.json')) {
+    const parsed = JSON.parse(await file.text());
+    const source = parsed.template ?? parsed;
+    const bodyTemplate = typeof source.bodyTemplate === 'string'
+      ? source.bodyTemplate
+      : typeof source.template_body === 'string'
+        ? source.template_body
+        : typeof source.content === 'string'
+          ? source.content
+          : 'Imported template body';
+
+    if (!bodyTemplate || !bodyTemplate.trim()) {
+      throw new Error('The selected JSON file does not contain an editable template body.');
+    }
+
+    const title = typeof source.name === 'string' && source.name.trim()
+      ? source.name.trim()
+      : typeof source.documentTitle === 'string' && source.documentTitle.trim()
+        ? source.documentTitle.trim()
+        : fileName.replace(/\.[^.]+$/, '');
+
+    return {
+      kind: 'json',
+      title,
+      description: typeof source.description === 'string' ? source.description : 'Imported from JSON export.',
+      documentType: typeof source.documentType === 'string' && source.documentType.trim() ? source.documentType : 'Barangay Certification',
+      barangay: typeof source.barangay === 'string' && source.barangay.trim() ? source.barangay : 'All',
+      bodyTemplate,
+      warnings: [],
+      isReferenceOnly: false,
+    };
+  }
+
+  if (lowerName.endsWith('.html') || lowerName.endsWith('.htm')) {
+    const rawHtml = await file.text();
+    const doc = sanitizeImportedHtml(rawHtml);
+    const heading = doc.querySelector('h1,h2,h3,h4')?.textContent?.trim() || fileName.replace(/\.[^.]+$/, '');
+    const bodyText = doc.body?.textContent?.replace(/\s+/g, ' ').trim() || '';
+    if (!bodyText) {
+      throw new Error('The selected HTML file did not contain usable template text.');
+    }
+
+    return {
+      kind: 'html',
+      title: heading,
+      description: 'Imported HTML document converted to a draft certificate template.',
+      documentType: 'Barangay Certification',
+      barangay: 'All',
+      bodyTemplate: bodyText,
+      warnings: ['Scripts, event handlers, and unsafe URLs were removed for safety.'],
+      isReferenceOnly: false,
+    };
+  }
+
+  if (lowerName.endsWith('.docx')) {
+    return {
+      kind: 'docx',
+      title: fileName.replace(/\.[^.]+$/, ''),
+      description: 'Microsoft Word document imported as a reference layout.',
+      documentType: 'Barangay Certification',
+      barangay: 'All',
+      bodyTemplate: `Imported DOCX reference: ${fileName}. Review the layout, map placeholders, and complete the editable template body before saving.`,
+      warnings: ['This DOCX import is reference-only. The layout requires manual review and cleanup before official use.'],
+      isReferenceOnly: true,
+    };
+  }
+
+  if (lowerName.endsWith('.pdf')) {
+    return {
+      kind: 'pdf',
+      title: fileName.replace(/\.[^.]+$/, ''),
+      description: 'Reference PDF imported as an optional background or source document.',
+      documentType: 'Barangay Certification',
+      barangay: 'All',
+      bodyTemplate: `Imported PDF reference: ${fileName}. This file cannot be converted into an editable template automatically and should be used only as a background reference.`,
+      warnings: ['PDF conversion is not automatic. Configure the editable template manually.'],
+      isReferenceOnly: true,
+    };
+  }
+
+  if (file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(lowerName)) {
+    return {
+      kind: 'image',
+      title: fileName.replace(/\.[^.]+$/, ''),
+      description: 'Image imported as a reference asset or background graphic.',
+      documentType: 'Barangay Certification',
+      barangay: 'All',
+      bodyTemplate: `Imported image asset: ${fileName}. Use this as a logo, watermark, or background reference and complete the certificate body separately.`,
+      warnings: ['Images are treated as visual assets, not editable certificate layouts.'],
+      isReferenceOnly: true,
+    };
+  }
+
+  throw new Error('Unsupported import format. Use JSON, HTML, DOCX, PDF, or image files.');
+};
+
 export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps> = ({
   initialTemplate,
   onSave,
@@ -116,6 +270,14 @@ export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps>
     'info' | 'header_logos' | 'body' | 'signatories' | 'watermark' | 'receipt'
   >('header_logos');
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [importedTemplate, setImportedTemplate] = useState<ImportedTemplateMetadata | null>(null);
+  const [importedFile, setImportedFile] = useState<File | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importedTemplateName, setImportedTemplateName] = useState('');
+  const [importedTemplateDescription, setImportedTemplateDescription] = useState('');
+  const [importedDocumentType, setImportedDocumentType] = useState('Barangay Certification');
+  const [importedBarangay, setImportedBarangay] = useState('All');
 
   const loadTemplates = useCallback(async () => {
     const sequence = ++templateLoadSequence.current;
@@ -320,6 +482,63 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
 
     setTemplate(newTpl);
     setSaveNotice('New template draft opened. Save Template to store it in the database.');
+  };
+
+  const openImportTemplateDialog = () => {
+    setImportError(null);
+    setImportedTemplate(null);
+    setImportedFile(null);
+    setImportedTemplateName('');
+    setImportedTemplateDescription('');
+    setImportedDocumentType(template.documentType || 'Barangay Certification');
+    setImportedBarangay(template.barangay || 'All');
+    setIsImportDialogOpen(true);
+  };
+
+  const handleImportTemplateFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const parsed = await parseImportedTemplateFile(file);
+      setImportedFile(file);
+      setImportedTemplate(parsed);
+      setImportError(null);
+      setImportedTemplateName(parsed.title || file.name.replace(/\.[^.]+$/, ''));
+      setImportedTemplateDescription(parsed.description || 'Imported certificate template');
+      setImportedDocumentType(parsed.documentType || 'Barangay Certification');
+      setImportedBarangay(parsed.barangay || 'All');
+    } catch (error) {
+      setImportedTemplate(null);
+      setImportedFile(null);
+      setImportError(error instanceof Error ? error.message : 'Unable to import template.');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const applyImportedTemplate = () => {
+    if (!importedTemplate) {
+      return;
+    }
+
+    const nextTemplate: CertificateTemplate = {
+      ...template,
+      name: importedTemplateName.trim() || importedTemplate.title,
+      description: importedTemplateDescription.trim() || importedTemplate.description,
+      documentType: importedDocumentType || importedTemplate.documentType,
+      barangay: importedBarangay || importedTemplate.barangay,
+      documentTitle: importedTemplate.title,
+      bodyTemplate: importedTemplate.bodyTemplate,
+      updatedAt: new Date().toISOString(),
+    };
+
+    setTemplate(nextTemplate);
+    setSaveNotice(`Imported template "${nextTemplate.name}" loaded. Review and save to persist it.`);
+    setIsImportDialogOpen(false);
+    setImportedTemplate(null);
+    setImportedFile(null);
+    setImportError(null);
   };
 
   // ==========================================
@@ -696,6 +915,15 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
                 Clear filters
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={openImportTemplateDialog}
+              className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>Import Template</span>
+            </button>
 
             {/* Create New Template Button */}
             <button
@@ -1819,6 +2047,169 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition cursor-pointer shadow-xs"
               >
                 Save Logo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isImportDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-700 px-5 py-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-400">Template import</p>
+                <h3 className="text-lg font-black text-white">Import Certificate Template</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsImportDialogOpen(false)}
+                className="rounded-lg border border-slate-600 p-2 text-slate-300 transition hover:bg-slate-800 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-5 p-5">
+              <div className="rounded-2xl border border-dashed border-slate-600 bg-slate-950/50 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold text-slate-200">Accepted formats</p>
+                    <p className="text-[11px] text-slate-400">JSON, HTML, DOCX, PDF, PNG, JPG, WEBP</p>
+                  </div>
+                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300">
+                    up to 5 MB
+                  </span>
+                </div>
+
+                <label className="mt-4 flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-slate-700 bg-slate-900 px-5 py-8 text-center transition hover:border-blue-500 hover:bg-slate-800">
+                  <Upload className="h-8 w-8 text-emerald-400" />
+                  <div>
+                    <p className="text-sm font-black text-white">Drag and drop or browse files</p>
+                    <p className="mt-1 text-[11px] text-slate-400">Select a template export, HTML layout, or reference document.</p>
+                  </div>
+                  <input type="file" accept=".json,.html,.htm,.docx,.pdf,.png,.jpg,.jpeg,.webp" onChange={handleImportTemplateFile} className="hidden" />
+                  <span className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white">Browse Files</span>
+                </label>
+              </div>
+
+              {importedFile && (
+                <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-200">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="font-black text-white">{importedFile.name}</p>
+                      <p className="text-slate-400">{formatImportSize(importedFile.size)} • {importedFile.type || 'Unknown type'}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImportedFile(null);
+                        setImportedTemplate(null);
+                        setImportError(null);
+                      }}
+                      className="rounded-lg border border-slate-600 px-2 py-1 font-bold text-slate-200 hover:bg-slate-800"
+                    >
+                      Replace File
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {importError && (
+                <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+                  {importError}
+                </div>
+              )}
+
+              {importedTemplate && (
+                <div className="space-y-4 rounded-2xl border border-slate-700 bg-slate-950/50 p-4">
+                  <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-emerald-300">
+                    <Check className="h-3.5 w-3.5" />
+                    Ready to review
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className="md:col-span-2">
+                      <label className="mb-1 block text-xs font-bold text-slate-200">Template name</label>
+                      <input
+                        type="text"
+                        value={importedTemplateName}
+                        onChange={e => setImportedTemplateName(e.target.value)}
+                        className="w-full rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 text-xs font-semibold text-white outline-none ring-0 focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="mb-1 block text-xs font-bold text-slate-200">Description</label>
+                      <textarea
+                        value={importedTemplateDescription}
+                        onChange={e => setImportedTemplateDescription(e.target.value)}
+                        rows={3}
+                        className="w-full rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 text-xs font-semibold text-white outline-none ring-0 focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-slate-200">Document type</label>
+                      <select
+                        value={importedDocumentType}
+                        onChange={e => setImportedDocumentType(e.target.value)}
+                        className="w-full rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 text-xs font-semibold text-white outline-none focus:border-blue-500"
+                      >
+                        {DOCUMENT_TYPE_OPTIONS.map(opt => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-slate-200">Barangay scope</label>
+                      <select
+                        value={importedBarangay}
+                        onChange={e => setImportedBarangay(e.target.value)}
+                        className="w-full rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 text-xs font-semibold text-white outline-none focus:border-blue-500"
+                      >
+                        <option value="All">All Barangays</option>
+                        {HINUNANGAN_BARANGAYS.map(b => (
+                          <option key={b.code} value={b.name}>{b.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-700 bg-slate-900/80 p-3">
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Imported content preview</p>
+                    <p className="line-clamp-5 whitespace-pre-wrap text-xs text-slate-200">
+                      {importedTemplate.bodyTemplate}
+                    </p>
+                  </div>
+
+                  {importedTemplate.warnings.length > 0 && (
+                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+                      {importedTemplate.warnings.map(warning => (
+                        <p key={warning} className="mb-1 last:mb-0">• {warning}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-slate-700 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setIsImportDialogOpen(false)}
+                className="rounded-xl border border-slate-600 px-4 py-2 text-xs font-bold text-slate-200 transition hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!importedTemplate}
+                onClick={applyImportedTemplate}
+                className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Apply to Template
               </button>
             </div>
           </div>
