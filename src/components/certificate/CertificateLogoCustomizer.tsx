@@ -181,7 +181,19 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
     try {
       setUploadingField(field);
       const asset = await mediaApi.uploadFile(file, 'certificates/logos');
-      const updated = { ...localSettings, [field]: asset.fileUrl };
+      
+      let typeFieldKey: keyof CertificateLogoSettings | null = null;
+      if (field === 'leftLogoUrl') typeFieldKey = 'leftLogoType';
+      if (field === 'centerLogoUrl') typeFieldKey = 'centerLogoType';
+      if (field === 'rightLogoUrl') typeFieldKey = 'rightLogoType';
+      if (field === 'watermarkUrl') typeFieldKey = 'watermarkType';
+
+      const updated = {
+        ...localSettings,
+        [field]: asset.fileUrl,
+        ...(typeFieldKey ? { [typeFieldKey]: 'custom' } : {}),
+      };
+
       setLocalSettings(updated);
       onChange(updated);
     } catch (error) {
@@ -315,7 +327,13 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
                   1. Left Logo / Seal
                 </span>
                 <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white shadow-2xs border border-stone-200 overflow-hidden">
-                  {localSettings.leftLogoType === 'barangay' ? (
+                  {localSettings.leftLogoType === 'custom' && localSettings.leftLogoUrl ? (
+                    <img
+                      src={localSettings.leftLogoUrl}
+                      alt="Left Seal"
+                      className="w-7 h-7 object-contain rounded-full"
+                    />
+                  ) : localSettings.leftLogoType === 'barangay' ? (
                     <SealBarangay
                       barangayName={localSettings.leftBarangayName}
                       className="w-7 h-7"
@@ -394,7 +412,13 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
                   2. Center Logo / Seal
                 </span>
                 <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white shadow-2xs border border-stone-200 overflow-hidden">
-                  {localSettings.centerLogoType === 'municipality' ? (
+                  {localSettings.centerLogoType === 'custom' && localSettings.centerLogoUrl ? (
+                    <img
+                      src={localSettings.centerLogoUrl}
+                      alt="Center Seal"
+                      className="w-7 h-7 object-contain rounded-full"
+                    />
+                  ) : localSettings.centerLogoType === 'municipality' ? (
                     <SealMunicipality className="w-7 h-7" customUrl={localSettings.centerLogoUrl} />
                   ) : localSettings.centerLogoType === 'da' ? (
                     <SealDA className="w-7 h-7" customUrl={localSettings.centerLogoUrl} />
@@ -426,8 +450,8 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
                     <option value="municipality">Municipality of Hinunangan</option>
                     <option value="da">Department of Agriculture (DA)</option>
                     <option value="bagong_pilipinas">Bagong Pilipinas</option>
-                    <option value="none">None / Hidden</option>
                     <option value="custom">Custom Uploaded Image</option>
+                    <option value="none">None / Hidden</option>
                   </select>
                 </div>
 
@@ -453,7 +477,13 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
                   3. Right Logo / Seal
                 </span>
                 <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white shadow-2xs border border-stone-200 overflow-hidden">
-                  {localSettings.rightLogoType === 'bagong_pilipinas' ? (
+                  {localSettings.rightLogoType === 'custom' && localSettings.rightLogoUrl ? (
+                    <img
+                      src={localSettings.rightLogoUrl}
+                      alt="Right Seal"
+                      className="w-7 h-7 object-contain rounded-full"
+                    />
+                  ) : localSettings.rightLogoType === 'bagong_pilipinas' ? (
                     <SealBagongPilipinas
                       className="w-7 h-7"
                       customUrl={localSettings.rightLogoUrl}
@@ -488,8 +518,8 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
                     <option value="municipality">Municipality of Hinunangan</option>
                     <option value="province">Province of Southern Leyte</option>
                     <option value="da">Department of Agriculture (DA)</option>
-                    <option value="none">None / Hidden</option>
                     <option value="custom">Custom Uploaded Image</option>
+                    <option value="none">None / Hidden</option>
                   </select>
                 </div>
 
@@ -526,35 +556,51 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
               </div>
 
               {localSettings.showWatermark && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 mb-1">
-                      Watermark Opacity: {Math.round(localSettings.watermarkOpacity * 100)}%
-                    </label>
-                    <input
-                      type="range"
-                      min="0.05"
-                      max="0.30"
-                      step="0.01"
-                      value={localSettings.watermarkOpacity}
-                      onChange={e => updateSetting('watermarkOpacity', parseFloat(e.target.value))}
-                      className="w-full accent-blue-600 cursor-pointer"
-                    />
+                <div className="space-y-3 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                        Watermark Opacity: {Math.round(localSettings.watermarkOpacity * 100)}%
+                      </label>
+                      <input
+                        type="range"
+                        min="0.05"
+                        max="0.30"
+                        step="0.01"
+                        value={localSettings.watermarkOpacity}
+                        onChange={e => updateSetting('watermarkOpacity', parseFloat(e.target.value))}
+                        className="w-full accent-blue-600 cursor-pointer"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                        Watermark Insignia
+                      </label>
+                      <select
+                        value={localSettings.watermarkType}
+                        onChange={e => updateSetting('watermarkType', e.target.value)}
+                        className="w-full bg-white border border-stone-300 rounded-lg p-2 font-semibold text-slate-800"
+                      >
+                        <option value="municipality">Municipality of Hinunangan</option>
+                        <option value="da">Department of Agriculture</option>
+                        <option value="barangay">Barangay Seal</option>
+                        <option value="custom">Custom Uploaded Image</option>
+                      </select>
+                    </div>
                   </div>
 
                   <div>
                     <label className="block text-[10px] font-bold text-slate-600 mb-1">
-                      Watermark Insignia
+                      Upload Custom Watermark Seal
                     </label>
-                    <select
-                      value={localSettings.watermarkType}
-                      onChange={e => updateSetting('watermarkType', e.target.value)}
-                      className="w-full bg-white border border-stone-300 rounded-lg p-2 font-semibold text-slate-800"
-                    >
-                      <option value="municipality">Municipality of Hinunangan</option>
-                      <option value="da">Department of Agriculture</option>
-                      <option value="barangay">Barangay Seal</option>
-                    </select>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={e => handleFileUpload(e, 'watermarkUrl')}
+                      disabled={uploadingField === 'watermarkUrl'}
+                      className="w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer disabled:opacity-50"
+                    />
                   </div>
                 </div>
               )}
@@ -750,4 +796,4 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
       </div>
     </div>
   );
-};
+};s
