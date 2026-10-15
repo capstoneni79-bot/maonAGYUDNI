@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Image as ImageIcon,
+  Image,
   Upload,
   Sparkles,
   Check,
@@ -37,13 +37,11 @@ export interface CertificateLogoSettings {
   barangayEmail?: string;
   barangayPhone?: string;
   headerMotto?: string;
-  
-  // Print Customization Properties
-  printLogoSize?: number; // In pixels for print dimensions (e.g., 64px - 112px)
-  printShowWatermark?: boolean; // Toggle watermark specifically when generating/printing PDF
-  printWatermarkOpacity?: number; // Specific opacity for printer ink economy (0.04 - 0.20)
-  printGrayscale?: boolean; // Black & white / grayscale printing toggle
-  printHideCenterLogo?: boolean; // Optional suppression for center seal on 2-column print layouts
+  printLogoSize?: number;
+  printShowWatermark?: boolean;
+  printWatermarkOpacity?: number;
+  printGrayscale?: boolean;
+  printHideCenterLogo?: boolean;
 }
 
 interface CertificateLogoCustomizerProps {
@@ -71,12 +69,6 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
   const [activeTab, setActiveTab] = useState<'general' | 'print'>('general');
   const [uploadingField, setUploadingField] = useState<string | null>(null);
 
-  // Hidden File Input Refs for direct image selection button triggers
-  const leftFileInputRef = useRef<HTMLInputElement>(null);
-  const centerFileInputRef = useRef<HTMLInputElement>(null);
-  const rightFileInputRef = useRef<HTMLInputElement>(null);
-  const watermarkFileInputRef = useRef<HTMLInputElement>(null);
-
   useEffect(() => {
     setLocalSettings({
       ...settings,
@@ -96,7 +88,6 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
     onChange(updated);
   };
 
-  // Preset Configurations matching authentic municipal certificates
   const applyPreset = (presetName: 'nava' | 'nueva_esperanza' | 'tuburan' | 'da_mao') => {
     let updated: CertificateLogoSettings = { ...localSettings };
 
@@ -187,19 +178,7 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
     try {
       setUploadingField(field);
       const asset = await mediaApi.uploadFile(file, 'certificates/logos');
-      
-      let typeFieldKey: keyof CertificateLogoSettings | null = null;
-      if (field === 'leftLogoUrl') typeFieldKey = 'leftLogoType';
-      if (field === 'centerLogoUrl') typeFieldKey = 'centerLogoType';
-      if (field === 'rightLogoUrl') typeFieldKey = 'rightLogoType';
-      if (field === 'watermarkUrl') typeFieldKey = 'watermarkType';
-
-      const updated = {
-        ...localSettings,
-        [field]: asset.fileUrl,
-        ...(typeFieldKey ? { [typeFieldKey]: 'custom' } : {}),
-      };
-
+      const updated = { ...localSettings, [field]: asset.fileUrl };
       setLocalSettings(updated);
       onChange(updated);
     } catch (error) {
@@ -207,10 +186,6 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
     } finally {
       setUploadingField(null);
     }
-  };
-
-  const handlePrintDocument = () => {
-    window.print();
   };
 
   return (
@@ -240,7 +215,7 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
           </button>
         </div>
 
-        {/* Tab Switching: General Setup vs Print Customizer */}
+        {/* Tab Selection */}
         <div className="flex rounded-xl bg-slate-100 p-1 border border-stone-200">
           <button
             type="button"
@@ -270,7 +245,7 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
 
         {activeTab === 'general' ? (
           <>
-            {/* Quick Authentic Photo Presets */}
+            {/* Template Presets */}
             <div className="space-y-2">
               <label className="block text-[11px] font-black uppercase tracking-wider text-slate-600">
                 QUICK AUTHENTIC TEMPLATE PRESETS (FROM PHOTO FORMATS)
@@ -330,20 +305,14 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
               </div>
             </div>
 
-            {/* 1. Left Logo Settings */}
+            {/* 1. Left Logo */}
             <div className="bg-slate-50 p-3.5 rounded-xl border border-stone-200 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase text-slate-800">
                   1. Left Logo / Seal
                 </span>
                 <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white shadow-2xs border border-stone-200 overflow-hidden">
-                  {localSettings.leftLogoType === 'custom' && localSettings.leftLogoUrl ? (
-                    <img
-                      src={localSettings.leftLogoUrl}
-                      alt="Left Seal"
-                      className="w-7 h-7 object-contain rounded-full"
-                    />
-                  ) : localSettings.leftLogoType === 'barangay' ? (
+                  {localSettings.leftLogoType === 'barangay' ? (
                     <SealBarangay
                       barangayName={localSettings.leftBarangayName}
                       className="w-7 h-7"
@@ -401,50 +370,28 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
                 )}
               </div>
 
-              <div className="space-y-1.5">
-                <label className="block text-[10px] font-bold text-slate-600">
-                  Select Left Seal Image File
+              <div>
+                <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                  Upload Custom Left Seal (Optional Replacement)
                 </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => leftFileInputRef.current?.click()}
-                    disabled={uploadingField === 'leftLogoUrl'}
-                    className="px-3 py-1.5 bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    {uploadingField === 'leftLogoUrl' ? 'Uploading...' : 'Select Image File'}
-                  </button>
-                  <input
-                    ref={leftFileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={e => handleFileUpload(e, 'leftLogoUrl')}
-                    className="hidden"
-                  />
-                  {localSettings.leftLogoUrl && (
-                    <span className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1 truncate max-w-[200px]">
-                      <Check className="w-3 h-3" /> Custom Image Attached
-                    </span>
-                  )}
-                </div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={e => handleFileUpload(e, 'leftLogoUrl')}
+                  disabled={uploadingField === 'leftLogoUrl'}
+                  className="w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer disabled:opacity-50"
+                />
               </div>
             </div>
 
-            {/* 2. Center Logo Settings */}
+            {/* 2. Center Logo */}
             <div className="bg-slate-50 p-3.5 rounded-xl border border-stone-200 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase text-slate-800">
                   2. Center Logo / Seal
                 </span>
                 <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white shadow-2xs border border-stone-200 overflow-hidden">
-                  {localSettings.centerLogoType === 'custom' && localSettings.centerLogoUrl ? (
-                    <img
-                      src={localSettings.centerLogoUrl}
-                      alt="Center Seal"
-                      className="w-7 h-7 object-contain rounded-full"
-                    />
-                  ) : localSettings.centerLogoType === 'municipality' ? (
+                  {localSettings.centerLogoType === 'municipality' ? (
                     <SealMunicipality className="w-7 h-7" customUrl={localSettings.centerLogoUrl} />
                   ) : localSettings.centerLogoType === 'da' ? (
                     <SealDA className="w-7 h-7" customUrl={localSettings.centerLogoUrl} />
@@ -476,56 +423,34 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
                     <option value="municipality">Municipality of Hinunangan</option>
                     <option value="da">Department of Agriculture (DA)</option>
                     <option value="bagong_pilipinas">Bagong Pilipinas</option>
-                    <option value="custom">Custom Uploaded Image</option>
                     <option value="none">None / Hidden</option>
+                    <option value="custom">Custom Uploaded Image</option>
                   </select>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="block text-[10px] font-bold text-slate-600">
-                    Select Center Seal Image File
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                    Upload Custom Center Seal
                   </label>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => centerFileInputRef.current?.click()}
-                      disabled={uploadingField === 'centerLogoUrl'}
-                      className="px-3 py-1.5 bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                      {uploadingField === 'centerLogoUrl' ? 'Uploading...' : 'Select Image File'}
-                    </button>
-                    <input
-                      ref={centerFileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={e => handleFileUpload(e, 'centerLogoUrl')}
-                      className="hidden"
-                    />
-                    {localSettings.centerLogoUrl && (
-                      <span className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1 truncate max-w-[150px]">
-                        <Check className="w-3 h-3" /> Attached
-                      </span>
-                    )}
-                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={e => handleFileUpload(e, 'centerLogoUrl')}
+                    disabled={uploadingField === 'centerLogoUrl'}
+                    className="w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer disabled:opacity-50"
+                  />
                 </div>
               </div>
             </div>
 
-            {/* 3. Right Logo Settings */}
+            {/* 3. Right Logo */}
             <div className="bg-slate-50 p-3.5 rounded-xl border border-stone-200 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase text-slate-800">
                   3. Right Logo / Seal
                 </span>
                 <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white shadow-2xs border border-stone-200 overflow-hidden">
-                  {localSettings.rightLogoType === 'custom' && localSettings.rightLogoUrl ? (
-                    <img
-                      src={localSettings.rightLogoUrl}
-                      alt="Right Seal"
-                      className="w-7 h-7 object-contain rounded-full"
-                    />
-                  ) : localSettings.rightLogoType === 'bagong_pilipinas' ? (
+                  {localSettings.rightLogoType === 'bagong_pilipinas' ? (
                     <SealBagongPilipinas
                       className="w-7 h-7"
                       customUrl={localSettings.rightLogoUrl}
@@ -560,38 +485,22 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
                     <option value="municipality">Municipality of Hinunangan</option>
                     <option value="province">Province of Southern Leyte</option>
                     <option value="da">Department of Agriculture (DA)</option>
-                    <option value="custom">Custom Uploaded Image</option>
                     <option value="none">None / Hidden</option>
+                    <option value="custom">Custom Uploaded Image</option>
                   </select>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="block text-[10px] font-bold text-slate-600">
-                    Select Right Seal Image File
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                    Upload Custom Right Seal
                   </label>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => rightFileInputRef.current?.click()}
-                      disabled={uploadingField === 'rightLogoUrl'}
-                      className="px-3 py-1.5 bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                      {uploadingField === 'rightLogoUrl' ? 'Uploading...' : 'Select Image File'}
-                    </button>
-                    <input
-                      ref={rightFileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={e => handleFileUpload(e, 'rightLogoUrl')}
-                      className="hidden"
-                    />
-                    {localSettings.rightLogoUrl && (
-                      <span className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1 truncate max-w-[150px]">
-                        <Check className="w-3 h-3" /> Attached
-                      </span>
-                    )}
-                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={e => handleFileUpload(e, 'rightLogoUrl')}
+                    disabled={uploadingField === 'rightLogoUrl'}
+                    className="w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer disabled:opacity-50"
+                  />
                 </div>
               </div>
             </div>
@@ -614,73 +523,41 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
               </div>
 
               {localSettings.showWatermark && (
-                <div className="space-y-3 text-xs">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-600 mb-1">
-                        Watermark Opacity: {Math.round(localSettings.watermarkOpacity * 100)}%
-                      </label>
-                      <input
-                        type="range"
-                        min="0.05"
-                        max="0.30"
-                        step="0.01"
-                        value={localSettings.watermarkOpacity}
-                        onChange={e => updateSetting('watermarkOpacity', parseFloat(e.target.value))}
-                        className="w-full accent-blue-600 cursor-pointer"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-600 mb-1">
-                        Watermark Insignia
-                      </label>
-                      <select
-                        value={localSettings.watermarkType}
-                        onChange={e => updateSetting('watermarkType', e.target.value)}
-                        className="w-full bg-white border border-stone-300 rounded-lg p-2 font-semibold text-slate-800"
-                      >
-                        <option value="municipality">Municipality of Hinunangan</option>
-                        <option value="da">Department of Agriculture</option>
-                        <option value="barangay">Barangay Seal</option>
-                        <option value="custom">Custom Uploaded Image</option>
-                      </select>
-                    </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                      Watermark Opacity: {Math.round(localSettings.watermarkOpacity * 100)}%
+                    </label>
+                    <input
+                      type="range"
+                      min="0.05"
+                      max="0.30"
+                      step="0.01"
+                      value={localSettings.watermarkOpacity}
+                      onChange={e => updateSetting('watermarkOpacity', parseFloat(e.target.value))}
+                      className="w-full accent-blue-600 cursor-pointer"
+                    />
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="block text-[10px] font-bold text-slate-600">
-                      Select Custom Watermark Seal Image File
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                      Watermark Insignia
                     </label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => watermarkFileInputRef.current?.click()}
-                        disabled={uploadingField === 'watermarkUrl'}
-                        className="px-3 py-1.5 bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                      >
-                        <Upload className="w-3.5 h-3.5" />
-                        {uploadingField === 'watermarkUrl' ? 'Uploading...' : 'Select Image File'}
-                      </button>
-                      <input
-                        ref={watermarkFileInputRef}
-                        type="file"
-                        accept="image/*"
-                        onChange={e => handleFileUpload(e, 'watermarkUrl')}
-                        className="hidden"
-                      />
-                      {localSettings.watermarkUrl && (
-                        <span className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1 truncate max-w-[200px]">
-                          <Check className="w-3 h-3" /> Attached
-                        </span>
-                      )}
-                    </div>
+                    <select
+                      value={localSettings.watermarkType}
+                      onChange={e => updateSetting('watermarkType', e.target.value)}
+                      className="w-full bg-white border border-stone-300 rounded-lg p-2 font-semibold text-slate-800"
+                    >
+                      <option value="municipality">Municipality of Hinunangan</option>
+                      <option value="da">Department of Agriculture</option>
+                      <option value="barangay">Barangay Seal</option>
+                    </select>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* 5. Contact Info in Header */}
+            {/* 5. Contact Details */}
             <div className="bg-slate-50 p-3.5 rounded-xl border border-stone-200 space-y-3">
               <span className="text-xs font-black uppercase text-slate-800">
                 5. Header Contact Details (e.g. Nava Style)
@@ -729,18 +606,8 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
         ) : (
           /* Print Calibration Tab */
           <div className="space-y-4">
-            <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3 text-xs text-blue-900 leading-relaxed flex items-center justify-between">
-              <div>
-                <strong>Print & Bondpaper Calibration Mode:</strong> Adjust physical seal size and background watermark opacity for A4 / Short / Long bondpaper layouts.
-              </div>
-              <button
-                type="button"
-                onClick={handlePrintDocument}
-                className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap ml-2"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                Print Certificate
-              </button>
+            <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3 text-xs text-blue-900 leading-relaxed">
+              <strong>Print Calibration Mode:</strong> Adjust the physical scale and ink distribution of the seals when sending certificates to thermal, inkjet, or laser printers.
             </div>
 
             {/* Print Logo Size */}
@@ -820,7 +687,7 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
               )}
             </div>
 
-            {/* Print Layout Toggles */}
+            {/* Print Adjustments */}
             <div className="bg-slate-50 p-3.5 rounded-xl border border-stone-200 space-y-3">
               <span className="text-xs font-black uppercase text-slate-800">
                 Print Output Adjustments
@@ -868,14 +735,6 @@ export const CertificateLogoCustomizer: React.FC<CertificateLogoCustomizerProps>
             Changes sync automatically
           </div>
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={handlePrintDocument}
-              className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold cursor-pointer text-xs flex items-center gap-1.5 transition"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              Print
-            </button>
             <button
               type="button"
               onClick={onClose}
