@@ -9,39 +9,26 @@ import {
   Globe,
   CheckCircle2,
   ChevronDown,
-  Check,
   X,
   ShieldCheck,
   Layers,
   Search,
   Sliders,
-  Calendar,
-  MapPin,
-  User,
   Plus,
   Trash2,
   Eye,
   Award,
   BookOpen,
   Send,
-  Info,
-  SlidersHorizontal,
-  CheckSquare,
-  Square,
-  AlertTriangle,
   FileCheck,
   Sparkles,
-  QrCode,
   Download,
-  Filter,
   ShieldAlert,
   Lock,
 } from 'lucide-react';
 import {
   SwineRecord,
   UserAccount,
-  CertificateConfig,
-  CertificateSignatory,
   IssuedCertificate,
   CertificateTypeDefinition,
   CertificateTemplate,
@@ -53,14 +40,10 @@ import {
   SealBagongPilipinas,
   SealDA,
   SealMunicipality,
-  SealBarangay,
-  SealProvince,
-  useOfficialLogos,
 } from '../common/OfficialSeals';
 import {
   BarangayCertificateView,
   CertificateData,
-  CertificateTemplateStyle,
 } from './BarangayCertificateView';
 import {
   CertificateLogoCustomizer,
@@ -315,12 +298,12 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
 
   // Signatory & Official Customization Modal State
   const [isSignatoryModalOpen, setIsSignatoryModalOpen] = useState(false);
-  const [preparedByName, setPreparedByName] = useState('');
-  const [preparedByTitle, setPreparedByTitle] = useState('');
-  const [verifiedByName, setVerifiedByName] = useState('');
-  const [verifiedByTitle, setVerifiedByTitle] = useState('');
-  const [approvedByName, setApprovedByName] = useState('');
-  const [approvedByTitle, setApprovedByTitle] = useState('');
+  const [preparedByName, setPreparedByName] = useState('ROB PETER E. MADAJE');
+  const [preparedByTitle, setPreparedByTitle] = useState('Field Inspector / BBO');
+  const [verifiedByName, setVerifiedByName] = useState('ENGR. ARNALDO M. VALDEZ');
+  const [verifiedByTitle, setVerifiedByTitle] = useState('Municipal Agricultural Officer');
+  const [approvedByName, setApprovedByName] = useState('HON. VICENTE T. MADRONERO JR.');
+  const [approvedByTitle, setApprovedByTitle] = useState('Municipal Mayor');
 
   // Transmittal Memorandum Custom Fields
   const [transmittalRefNo, setTransmittalRefNo] = useState('DA-MAO-HN-2026-TR-0982');
@@ -955,21 +938,23 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
 
           <div className="flex flex-wrap items-center gap-2">
             {/* Create Certificate Main Button */}
-            {documentType === 'barangay_certification' && <button
-              type="button"
-              onClick={() => {
-                if (canManageTemplates) {
-                  setEditingTemplate(undefined);
-                  setIsTemplateEditorOpen(true);
-                } else {
-                  setIsCreateCertModalOpen(true);
-                }
-              }}
-              className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-400 px-4 py-2 text-xs font-black text-slate-950 shadow-xs transition hover:bg-amber-300 cursor-pointer"
-            >
-              <Plus className="w-4 h-4 stroke-[3]" />
-              <span>Create / Issue Certificate</span>
-            </button>}
+            {documentType === 'barangay_certification' && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (canManageTemplates) {
+                    setEditingTemplate(undefined);
+                    setIsTemplateEditorOpen(true);
+                  } else {
+                    setIsCreateCertModalOpen(true);
+                  }
+                }}
+                className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-400 px-4 py-2 text-xs font-black text-slate-950 shadow-xs transition hover:bg-amber-300 cursor-pointer"
+              >
+                <Plus className="w-4 h-4 stroke-[3]" />
+                <span>Create / Issue Certificate</span>
+              </button>
+            )}
             {documentType === 'barangay_certification' && canManageTemplates && (
               <button
                 type="button"
@@ -986,10 +971,35 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                 More actions <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
               </summary>
               <div className="absolute right-0 z-40 mt-1 w-[min(14rem,calc(100vw-2rem))] rounded-xl border border-stone-200 bg-white p-1.5 shadow-xl">
-                <button type="button" disabled={!canManageActiveTemplate} onClick={event => { setIsLogoModalOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50">
+                <button
+                  type="button"
+                  onClick={event => {
+                    setIsSignatoryModalOpen(true);
+                    event.currentTarget.closest('details')?.removeAttribute('open');
+                  }}
+                  className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50"
+                >
+                  <Edit3 className="h-4 w-4 text-stone-500" /> Edit signatories
+                </button>
+                <button
+                  type="button"
+                  disabled={!canManageActiveTemplate}
+                  onClick={event => {
+                    setIsLogoModalOpen(true);
+                    event.currentTarget.closest('details')?.removeAttribute('open');
+                  }}
+                  className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
                   <Sliders className="h-4 w-4 text-stone-500" /> Change logos & seals
                 </button>
-                <button type="button" onClick={event => { window.open('/', '_blank'); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50">
+                <button
+                  type="button"
+                  onClick={event => {
+                    window.open('/', '_blank');
+                    event.currentTarget.closest('details')?.removeAttribute('open');
+                  }}
+                  className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50"
+                >
                   <Globe className="h-4 w-4 text-stone-500" /> Public portal
                 </button>
               </div>
@@ -1007,7 +1017,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
               DOCUMENT:
             </span>
 
-            {/* 1. Barangay Certification (Photo Match) */}
+            {/* 1. Barangay Certification */}
             <button
               type="button"
               role="tab"
@@ -1273,10 +1283,28 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
                   Template actions <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
                 </summary>
                 <div className="absolute right-0 z-40 mt-1 w-[min(16rem,calc(100vw-2rem))] rounded-xl border border-stone-200 bg-white p-1.5 shadow-xl">
-                  <button type="button" disabled={!canManageActiveTemplate || isLoadingTemplates} onClick={event => { setEditingTemplate(activeTemplate); setIsTemplateEditorOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50">
+                  <button
+                    type="button"
+                    disabled={!canManageActiveTemplate || isLoadingTemplates}
+                    onClick={event => {
+                      setEditingTemplate(activeTemplate);
+                      setIsTemplateEditorOpen(true);
+                      event.currentTarget.closest('details')?.removeAttribute('open');
+                    }}
+                    className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
                     <Sliders className="h-4 w-4 text-stone-500" /> Customize template & logos
                   </button>
-                  <button type="button" disabled={!canManageTemplates || isLoadingTemplates} onClick={event => { setEditingTemplate(undefined); setIsTemplateEditorOpen(true); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50">
+                  <button
+                    type="button"
+                    disabled={!canManageTemplates || isLoadingTemplates}
+                    onClick={event => {
+                      setEditingTemplate(undefined);
+                      setIsTemplateEditorOpen(true);
+                      event.currentTarget.closest('details')?.removeAttribute('open');
+                    }}
+                    className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
                     <Sparkles className="h-4 w-4 text-stone-500" /> Create new template
                   </button>
                 </div>
@@ -1354,7 +1382,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
       {/* Main Document Body Canvas */}
       <div className="mx-auto max-w-[1400px] px-3 pt-4 sm:px-6 sm:pt-6">
         {/* ========================================================================= */}
-        {/* 1. BARANGAY CERTIFICATION VIEW (Dynamic & Authentic Match to Photos) */}
+        {/* 1. BARANGAY CERTIFICATION VIEW */}
         {/* ========================================================================= */}
         {documentType === 'barangay_certification' && (
           <div className="space-y-6">
@@ -1909,7 +1937,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
         )}
 
         {/* ========================================================================= */}
-        {/* 3. MASTERLIST REGISTRY (Standard Registry View) */}
+        {/* 3. MASTERLIST REGISTRY */}
         {/* ========================================================================= */}
         {documentType === 'masterlist' && (
           <div
@@ -2070,7 +2098,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
         )}
 
         {/* ========================================================================= */}
-        {/* 4. TRANSMITTAL LETTER (Full CRUD & Document List Embedding) */}
+        {/* 4. TRANSMITTAL LETTER */}
         {/* ========================================================================= */}
         {documentType === 'transmittal' && (
           <TransmittalLetterManager
@@ -2131,7 +2159,7 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                    onClick={() => triggerScopedPrint('biosecurity-report')}
+                  onClick={() => triggerScopedPrint('biosecurity-report')}
                   className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 transition cursor-pointer"
                 >
                   <Printer className="w-4 h-4" />

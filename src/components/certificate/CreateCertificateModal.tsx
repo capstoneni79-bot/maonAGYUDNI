@@ -66,8 +66,12 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(initialData?.templateId || '');
 
   const activeTemplate = useMemo(() => {
-    return allTemplates.find(template => template.id === selectedTemplateId) ||
-      (initialData?.templateSnapshot?.id === selectedTemplateId ? initialData.templateSnapshot as CertificateTemplate : null);
+    return (
+      allTemplates.find(template => template.id === selectedTemplateId) ||
+      (initialData?.templateSnapshot?.id === selectedTemplateId
+        ? (initialData.templateSnapshot as CertificateTemplate)
+        : null)
+    );
   }, [allTemplates, selectedTemplateId, initialData?.templateSnapshot]);
 
   useEffect(() => {
@@ -147,32 +151,49 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
     setIsLoadingTemplates(true);
     setSaveError('');
     setAllTemplates([]);
-    moduleDataApi.get<CertificateTemplate[]>('certificate_templates').then(templates => {
-      if (!active) return;
-      setAllTemplates(templates);
-      const persistedSelection = templates.find(template => template.id === initialData?.templateId);
-      const snapshotSelection = initialData?.templateSnapshot?.id === initialData?.templateId
-        ? initialData.templateSnapshot as CertificateTemplate
-        : undefined;
-      if (initialData?.templateId) {
-        setSelectedTemplateId(persistedSelection?.id || snapshotSelection?.id || initialData.templateId);
-        if (!persistedSelection && !snapshotSelection) {
-          setSaveError('The template used by this issued certificate is no longer available. Its saved certificate details will not be replaced with another template.');
+    moduleDataApi
+      .get<CertificateTemplate[]>('certificate_templates')
+      .then(templates => {
+        if (!active) return;
+        setAllTemplates(templates);
+        const persistedSelection = templates.find(template => template.id === initialData?.templateId);
+        const snapshotSelection =
+          initialData?.templateSnapshot?.id === initialData?.templateId
+            ? (initialData.templateSnapshot as CertificateTemplate)
+            : undefined;
+        if (initialData?.templateId) {
+          setSelectedTemplateId(persistedSelection?.id || snapshotSelection?.id || initialData.templateId);
+          if (!persistedSelection && !snapshotSelection) {
+            setSaveError(
+              'The template used by this issued certificate is no longer available. Its saved certificate details will not be replaced with another template.'
+            );
+          }
+        } else {
+          const selectedScope = (
+            initialData?.barangay ||
+            initialData?.farmerBarangay ||
+            currentUser?.assignedBarangay ||
+            barangays[0]?.name ||
+            ''
+          )
+            .trim()
+            .toLowerCase();
+          const preferred = templates.find(template => {
+            const scope = (template.barangay || '').trim().toLowerCase();
+            return template.isActive && (!scope || scope === 'all' || scope === selectedScope);
+          });
+          setSelectedTemplateId(preferred?.id || '');
         }
-      } else {
-        const selectedScope = (initialData?.barangay || initialData?.farmerBarangay || currentUser?.assignedBarangay || barangays[0]?.name || '').trim().toLowerCase();
-        const preferred = templates.find(template => {
-          const scope = (template.barangay || '').trim().toLowerCase();
-          return template.isActive && (!scope || scope === 'all' || scope === selectedScope);
-        });
-        setSelectedTemplateId(preferred?.id || '');
-      }
-    }).catch(error => {
-      if (active) setSaveError(error instanceof Error ? error.message : 'Unable to load certificate templates from database.');
-    }).finally(() => {
-      if (active) setIsLoadingTemplates(false);
-    });
-    return () => { active = false; };
+      })
+      .catch(error => {
+        if (active) setSaveError(error instanceof Error ? error.message : 'Unable to load certificate templates from database.');
+      })
+      .finally(() => {
+        if (active) setIsLoadingTemplates(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [
     isOpen,
     initialData?.templateId,
@@ -214,8 +235,13 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
   // When barangay changes, auto-suggest template if user hasn't explicitly locked another
   useEffect(() => {
     if (initialData?.templateId) return;
-    const matched = allTemplates.find(template => template.isActive &&
-      (!template.barangay || template.barangay === 'All' || template.barangay.toLowerCase() === selectedBarangay.toLowerCase()));
+    const matched = allTemplates.find(
+      template =>
+        template.isActive &&
+        (!template.barangay ||
+          template.barangay === 'All' ||
+          template.barangay.toLowerCase() === selectedBarangay.toLowerCase())
+    );
     if (matched && matched.id !== selectedTemplateId) {
       setSelectedTemplateId(matched.id);
     } else if (!matched && !initialData?.templateId) {
@@ -239,9 +265,7 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
     const matched = swineList.filter(
       s => s.farmerName === farmerNameSelected && (!selectedBarangay || s.barangay === selectedBarangay)
     );
-    const farmerRecords = matched.length > 0
-      ? matched
-      : swineList.filter(s => s.farmerName === farmerNameSelected);
+    const farmerRecords = matched.length > 0 ? matched : swineList.filter(s => s.farmerName === farmerNameSelected);
     if (farmerRecords.length > 0) {
       setSelectedBarangay(farmerRecords[0].barangay || selectedBarangay);
       setNumberOfHeads(farmerRecords.length);
@@ -266,7 +290,11 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
     return (
       <div role="alert" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4 text-white">
         <div className="max-w-md space-y-4 rounded-lg bg-slate-900 p-6">
-          <p>{isLoadingTemplates ? 'Loading certificate templates from database...' : saveError || 'No certificate templates are available.'}</p>
+          <p>
+            {isLoadingTemplates
+              ? 'Loading certificate templates from database...'
+              : saveError || 'No certificate templates are available.'}
+          </p>
           {!isLoadingTemplates && canCreateTemplate && (
             <button
               type="button"
@@ -285,7 +313,9 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
               Retry loading templates
             </button>
           )}
-          <button type="button" onClick={onClose} className="rounded border border-white/30 px-3 py-2">Close</button>
+          <button type="button" onClick={onClose} className="rounded border border-white/30 px-3 py-2">
+            Close
+          </button>
         </div>
       </div>
     );
@@ -360,15 +390,22 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
     }
     setIsSaving(true);
     try {
-      const certNumber = initialData?.certificateNo || initialData?.controlNumber || `HN-BRGY-${selectedBarangay.substring(0, 3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
+      const certNumber =
+        initialData?.certificateNo ||
+        initialData?.controlNumber ||
+        `HN-BRGY-${selectedBarangay.substring(0, 3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
       const certId = initialData?.id || `cert-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
       const renderedBody = replaceTemplatePlaceholders(activeTemplate.bodyTemplate || '', activeDataContext);
       const recordedEarTags = selectedFarmerRecords
         .map(swine => swine.pigIdTag?.trim() || swine.earTagNo?.trim() || '')
         .filter(Boolean);
 
-      const firstPB = activeTemplate.signatories.find(s => s.position?.toLowerCase().includes('punong') || s.section === 'certified_by')?.name || '';
-      const firstBBO = activeTemplate.signatories.find(s => s.position?.toLowerCase().includes('bbo') || s.section === 'noted_by')?.name || '';
+      const firstPB =
+        activeTemplate.signatories.find(s => s.position?.toLowerCase().includes('punong') || s.section === 'certified_by')
+          ?.name || '';
+      const firstBBO =
+        activeTemplate.signatories.find(s => s.position?.toLowerCase().includes('bbo') || s.section === 'noted_by')
+          ?.name || '';
 
       const certPayload: IssuedCertificate = {
         ...(initialData || {}),
@@ -424,7 +461,8 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
       <div className="bg-white max-w-5xl w-full rounded-2xl shadow-2xl border border-stone-200 flex flex-col max-h-[95vh] overflow-hidden">
         {saveError && <div role="alert" className="border-b border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{saveError}</div>}
         {isLoadingTemplates && <div role="status" className="px-4 py-2 text-xs text-stone-600">Loading templates from database...</div>}
-        {/* Header (Picture 6 styling) */}
+
+        {/* Header Bar */}
         <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between bg-slate-900 text-white">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-blue-500/20 border border-blue-400/40 text-blue-300 flex items-center justify-center font-black">
@@ -435,7 +473,7 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
                 {isEditMode ? 'Edit Official Barangay Certification' : 'Create & Issue Official Barangay Certification'}
               </h2>
               <p className="text-xs text-slate-400">
-                Dynamic multi-barangay templates • Picture 1, 2, 3 official format support
+                Dynamic multi-barangay templates • Official layout & header format support
               </p>
             </div>
           </div>
@@ -535,7 +573,7 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
                           <span className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-700 font-bold uppercase">
                             {tpl.barangay}
                           </span>
-                          <span>• {tpl.language}</span>
+                          <span className="capitalize">{tpl.language}</span>
                           <span>• {tpl.signatories?.length || 1} signers</span>
                         </div>
                       </button>
@@ -803,10 +841,7 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
           ) : (
             /* Live Dynamic Preview Canvas */
             <div className="py-4">
-              <DynamicCertificateView
-                template={activeTemplate}
-                data={activeDataContext}
-              />
+              <DynamicCertificateView template={activeTemplate} data={activeDataContext} />
             </div>
           )}
         </div>
@@ -862,7 +897,9 @@ export const CreateCertificateModal: React.FC<CreateCertificateModalProps> = ({
               className="px-5 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-black shadow-sm flex items-center gap-2 transition cursor-pointer"
             >
               <Check className="w-4 h-4" />
-              <span>{isSaving ? 'Saving to database...' : isEditMode ? 'Save Changes' : 'Save & Issue Certificate'}</span>
+              <span>
+                {isSaving ? 'Saving to database...' : isEditMode ? 'Save Changes' : 'Save & Issue Certificate'}
+              </span>
             </button>
 
             <button

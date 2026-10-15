@@ -60,8 +60,8 @@ const createBlankTemplate = (barangay = 'All'): CertificateTemplate => {
     id: createTemplateId(),
     name: 'New certificate template',
     barangay,
-    documentType: '',
-    documentTitle: '',
+    documentType: 'Barangay Certification',
+    documentTitle: 'BARANGAY CERTIFICATION',
     titleFont: 'serif_bold',
     language: 'english',
     pageSize: 'Folio',
@@ -70,7 +70,7 @@ const createBlankTemplate = (barangay = 'All'): CertificateTemplate => {
       countryText: 'Republic of the Philippines',
       provinceText: 'PROVINCE OF SOUTHERN LEYTE',
       municipalityText: 'Municipality of Hinunangan',
-      barangayText: '',
+      barangayText: barangay === 'All' ? '' : `BARANGAY ${barangay.toUpperCase()}`,
       borderStyle: 'single',
     },
     logos: [],
@@ -253,9 +253,7 @@ export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps>
   assignedBarangay = '',
 }) => {
   // Load saved templates from the shared database for search and selection.
-  const [availableTemplates, setAvailableTemplates] = useState<CertificateTemplate[]>(() => {
-    return [];
-  });
+  const [availableTemplates, setAvailableTemplates] = useState<CertificateTemplate[]>([]);
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(true);
   const [templateLoadError, setTemplateLoadError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -289,19 +287,19 @@ export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps>
       setTemplate(current => {
         const saved = loaded.find(item => item.id === current.id);
         if (!saved) return current;
-        const logos = current.logos.map(logo => {
-          const refreshed = saved.logos.find(item => item.id === logo.id && item.storagePath === logo.storagePath);
+        const logos = (current.logos || []).map(logo => {
+          const refreshed = (saved.logos || []).find(item => item.id === logo.id && item.storagePath === logo.storagePath);
           return refreshed?.storagePath ? { ...logo, customUrl: refreshed.customUrl } : logo;
         });
-        const signatories = current.signatories.map(signatory => {
-          const refreshed = saved.signatories.find(item =>
+        const signatories = (current.signatories || []).map(signatory => {
+          const refreshed = (saved.signatories || []).find(item =>
             item.id === signatory.id && item.signatureStoragePath === signatory.signatureStoragePath
           );
           return refreshed?.signatureStoragePath
             ? { ...signatory, signatureImageUrl: refreshed.signatureImageUrl }
             : signatory;
         });
-        const watermark = current.watermark.storagePath === saved.watermark.storagePath && saved.watermark.storagePath
+        const watermark = current.watermark?.storagePath === saved.watermark?.storagePath && saved.watermark?.storagePath
           ? { ...current.watermark, customUrl: saved.watermark.customUrl }
           : current.watermark;
         return { ...current, logos, signatories, watermark };
@@ -324,11 +322,8 @@ export const CertificateTemplateEditor: React.FC<CertificateTemplateEditorProps>
   const [selectedDocTypeFilter, setSelectedDocTypeFilter] = useState('all');
   const [selectedLanguageFilter, setSelectedLanguageFilter] = useState('all');
 
-  // Change Logo Modal / State
-  const [changingLogoId, setChangingLogoId] = useState<string | null>(null);
-  const [isAddLogoModalOpen, setIsAddLogoModalOpen] = useState(false);
-
   // New Logo Form State
+  const [isAddLogoModalOpen, setIsAddLogoModalOpen] = useState(false);
   const [newLogoType, setNewLogoType] = useState<CertificateLogoType>('barangay');
   const [newLogoPosition, setNewLogoPosition] = useState<CertificateLogoPosition>('left');
   const [newLogoBarangay, setNewLogoBarangay] = useState<string>(
@@ -746,7 +741,7 @@ Issued this {{date_issued}} at Barangay {{barangay}}, Hinunangan, Southern Leyte
       return;
     }
     setIsSaving(true);
-    const updated = { ...template     };
+    const updated = { ...template };
     try {
       const confirmedTemplate = await onSave(updated);
       templateLoadSequence.current++;

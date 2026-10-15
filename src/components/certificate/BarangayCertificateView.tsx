@@ -144,11 +144,24 @@ export const BarangayCertificateView: React.FC<BarangayCertificateViewProps> = (
   };
   const logoSettings = effectiveLogoSettings;
 
+  // Determine logo sizes and watermark parameters based on print calibration
+  const logoSizePx = isPrintMode && logoSettings.printLogoSize ? logoSettings.printLogoSize : 72;
+  const activeWatermarkOpacity =
+    isPrintMode && logoSettings.printWatermarkOpacity !== undefined
+      ? logoSettings.printWatermarkOpacity
+      : logoSettings.watermarkOpacity;
+  const activeShowWatermark =
+    isPrintMode && logoSettings.printShowWatermark !== undefined
+      ? logoSettings.printShowWatermark
+      : logoSettings.showWatermark;
+
   return (
     <div
       ref={containerRef}
       data-print-document="certificate"
-      className="printable-certificate-container mx-auto w-full max-w-[820px] overflow-hidden rounded-xl border border-stone-300 bg-white p-8 font-serif text-stone-900 shadow-xl relative select-text sm:p-12"
+      className={`printable-certificate-container mx-auto w-full max-w-[820px] overflow-hidden rounded-xl border border-stone-300 bg-white p-8 font-serif text-stone-900 shadow-xl relative select-text sm:p-12 ${
+        logoSettings.printGrayscale ? 'filter grayscale' : ''
+      }`}
       style={{
         minHeight: '1050px',
         backgroundColor: '#ffffff',
@@ -156,23 +169,29 @@ export const BarangayCertificateView: React.FC<BarangayCertificateViewProps> = (
       }}
     >
       {/* Background Watermark */}
-      {effectiveLogoSettings.showWatermark && (
+      {activeShowWatermark && (
         <div
           className="absolute inset-0 flex items-center justify-center pointer-events-none select-none z-0"
-          style={{ opacity: effectiveLogoSettings.watermarkOpacity }}
+          style={{ opacity: activeWatermarkOpacity }}
         >
-          {effectiveLogoSettings.watermarkType === 'da' ? (
-            <SealDA className="w-[420px] h-[420px] max-w-[80vw]" customUrl={effectiveLogoSettings.watermarkUrl} />
-          ) : effectiveLogoSettings.watermarkType === 'barangay' ? (
+          {logoSettings.watermarkType === 'custom' && logoSettings.watermarkUrl ? (
+            <img
+              src={logoSettings.watermarkUrl}
+              alt="Watermark"
+              className="w-[420px] h-[420px] max-w-[80vw] object-contain"
+            />
+          ) : logoSettings.watermarkType === 'da' ? (
+            <SealDA className="w-[420px] h-[420px] max-w-[80vw]" customUrl={logoSettings.watermarkUrl} />
+          ) : logoSettings.watermarkType === 'barangay' ? (
             <SealBarangay
-              barangayName={effectiveLogoSettings.leftBarangayName || data.barangay}
+              barangayName={logoSettings.leftBarangayName || data.barangay}
               className="w-[420px] h-[420px] max-w-[80vw]"
-              customUrl={effectiveLogoSettings.watermarkUrl}
+              customUrl={logoSettings.watermarkUrl}
             />
           ) : (
             <SealMunicipality
               className="w-[440px] h-[440px] max-w-[80vw]"
-              customUrl={effectiveLogoSettings.watermarkUrl}
+              customUrl={logoSettings.watermarkUrl}
             />
           )}
         </div>
@@ -186,31 +205,43 @@ export const BarangayCertificateView: React.FC<BarangayCertificateViewProps> = (
         <div className="border-b border-stone-200 pb-4">
           <div className="flex items-center justify-between gap-2">
             {/* Left Seal */}
-            <div className="w-20 sm:w-24 shrink-0 flex items-center justify-center">
-              {logoSettings.leftLogoType === 'barangay' && (
-                <SealBarangay
-                  barangayName={logoSettings.leftBarangayName || data.barangay}
-                  className="w-16 h-16 sm:w-20 sm:h-20"
-                  customUrl={logoSettings.leftLogoUrl}
-                />
-              )}
-              {logoSettings.leftLogoType === 'da' && (
-                <SealDA className="w-16 h-16 sm:w-20 sm:h-20" customUrl={logoSettings.leftLogoUrl} />
-              )}
-              {logoSettings.leftLogoType === 'municipality' && (
-                <SealMunicipality
-                  className="w-16 h-16 sm:w-20 sm:h-20"
-                  customUrl={logoSettings.leftLogoUrl}
-                />
-              )}
-              {logoSettings.leftLogoType === 'custom' && logoSettings.leftLogoUrl && (
+            <div className="shrink-0 flex items-center justify-center" style={{ width: `${logoSizePx + 16}px` }}>
+              {logoSettings.leftLogoType === 'custom' && logoSettings.leftLogoUrl ? (
                 <img
                   src={logoSettings.leftLogoUrl}
                   alt="Left Logo"
-                  className="w-16 h-16 sm:w-20 sm:h-20 object-contain rounded-full"
+                  style={{ width: `${logoSizePx}px`, height: `${logoSizePx}px` }}
+                  className="object-contain rounded-full"
                   referrerPolicy="no-referrer"
                 />
-              )}
+              ) : logoSettings.leftLogoType === 'barangay' ? (
+                <SealBarangay
+                  barangayName={logoSettings.leftBarangayName || data.barangay}
+                  style={{ width: `${logoSizePx}px`, height: `${logoSizePx}px` }}
+                  className="w-16 h-16 sm:w-20 sm:h-20"
+                  customUrl={logoSettings.leftLogoUrl}
+                />
+              ) : logoSettings.leftLogoType === 'da' ? (
+                <SealDA
+                  style={{ width: `${logoSizePx}px`, height: `${logoSizePx}px` }}
+                  className="w-16 h-16 sm:w-20 sm:h-20"
+                  customUrl={logoSettings.leftLogoUrl}
+                />
+              ) : logoSettings.leftLogoType === 'municipality' ? (
+                <SealMunicipality
+                  style={{ width: `${logoSizePx}px`, height: `${logoSizePx}px` }}
+                  className="w-16 h-16 sm:w-20 sm:h-20"
+                  customUrl={logoSettings.leftLogoUrl}
+                />
+              ) : logoSettings.leftLogoUrl ? (
+                <img
+                  src={logoSettings.leftLogoUrl}
+                  alt="Left Logo"
+                  style={{ width: `${logoSizePx}px`, height: `${logoSizePx}px` }}
+                  className="object-contain rounded-full"
+                  referrerPolicy="no-referrer"
+                />
+              ) : null}
             </div>
 
             {/* Center Official Text */}
@@ -252,54 +283,82 @@ export const BarangayCertificateView: React.FC<BarangayCertificateViewProps> = (
             </div>
 
             {/* Right Seal & Center/BP Seal Cluster */}
-            <div className="w-20 sm:w-24 shrink-0 flex items-center justify-end gap-1.5">
-              {/* Optional Center Logo placed next to right logo if style is Nava 3-seal */}
-              {logoSettings.centerLogoType === 'municipality' && (
-                <SealMunicipality
-                  className="w-14 h-14 sm:w-16 sm:h-16"
-                  customUrl={logoSettings.centerLogoUrl}
-                />
-              )}
-              {logoSettings.centerLogoType === 'da' && (
-                <SealDA className="w-14 h-14 sm:w-16 sm:h-16" customUrl={logoSettings.centerLogoUrl} />
-              )}
-              {logoSettings.centerLogoType === 'bagong_pilipinas' && (
-                <SealBagongPilipinas
-                  className="w-14 h-14 sm:w-16 sm:h-16"
-                  customUrl={logoSettings.centerLogoUrl}
-                />
+            <div className="shrink-0 flex items-center justify-end gap-1.5" style={{ width: `${logoSizePx + 16}px` }}>
+              {/* Optional Center Logo */}
+              {!(isPrintMode && logoSettings.printHideCenterLogo) && (
+                <>
+                  {logoSettings.centerLogoType === 'custom' && logoSettings.centerLogoUrl ? (
+                    <img
+                      src={logoSettings.centerLogoUrl}
+                      alt="Center Logo"
+                      style={{ width: `${logoSizePx - 8}px`, height: `${logoSizePx - 8}px` }}
+                      className="object-contain rounded-full"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : logoSettings.centerLogoType === 'municipality' ? (
+                    <SealMunicipality
+                      style={{ width: `${logoSizePx - 8}px`, height: `${logoSizePx - 8}px` }}
+                      className="w-14 h-14 sm:w-16 sm:h-16"
+                      customUrl={logoSettings.centerLogoUrl}
+                    />
+                  ) : logoSettings.centerLogoType === 'da' ? (
+                    <SealDA
+                      style={{ width: `${logoSizePx - 8}px`, height: `${logoSizePx - 8}px` }}
+                      className="w-14 h-14 sm:w-16 sm:h-16"
+                      customUrl={logoSettings.centerLogoUrl}
+                    />
+                  ) : logoSettings.centerLogoType === 'bagong_pilipinas' ? (
+                    <SealBagongPilipinas
+                      style={{ width: `${logoSizePx - 8}px`, height: `${logoSizePx - 8}px` }}
+                      className="w-14 h-14 sm:w-16 sm:h-16"
+                      customUrl={logoSettings.centerLogoUrl}
+                    />
+                  ) : null}
+                </>
               )}
 
               {/* Right Logo */}
-              {logoSettings.rightLogoType === 'bagong_pilipinas' && (
-                <SealBagongPilipinas
-                  className="w-14 h-14 sm:w-16 sm:h-16"
-                  customUrl={logoSettings.rightLogoUrl}
-                />
-              )}
-              {logoSettings.rightLogoType === 'municipality' && (
-                <SealMunicipality
-                  className="w-16 h-16 sm:w-20 sm:h-20"
-                  customUrl={logoSettings.rightLogoUrl}
-                />
-              )}
-              {logoSettings.rightLogoType === 'province' && (
-                <SealProvince
-                  className="w-16 h-16 sm:w-20 sm:h-20"
-                  customUrl={logoSettings.rightLogoUrl}
-                />
-              )}
-              {logoSettings.rightLogoType === 'da' && (
-                <SealDA className="w-16 h-16 sm:w-20 sm:h-20" customUrl={logoSettings.rightLogoUrl} />
-              )}
-              {logoSettings.rightLogoType === 'custom' && logoSettings.rightLogoUrl && (
+              {logoSettings.rightLogoType === 'custom' && logoSettings.rightLogoUrl ? (
                 <img
                   src={logoSettings.rightLogoUrl}
                   alt="Right Logo"
-                  className="w-16 h-16 sm:w-20 sm:h-20 object-contain rounded-full"
+                  style={{ width: `${logoSizePx}px`, height: `${logoSizePx}px` }}
+                  className="object-contain rounded-full"
                   referrerPolicy="no-referrer"
                 />
-              )}
+              ) : logoSettings.rightLogoType === 'bagong_pilipinas' ? (
+                <SealBagongPilipinas
+                  style={{ width: `${logoSizePx}px`, height: `${logoSizePx}px` }}
+                  className="w-14 h-14 sm:w-16 sm:h-16"
+                  customUrl={logoSettings.rightLogoUrl}
+                />
+              ) : logoSettings.rightLogoType === 'municipality' ? (
+                <SealMunicipality
+                  style={{ width: `${logoSizePx}px`, height: `${logoSizePx}px` }}
+                  className="w-16 h-16 sm:w-20 sm:h-20"
+                  customUrl={logoSettings.rightLogoUrl}
+                />
+              ) : logoSettings.rightLogoType === 'province' ? (
+                <SealProvince
+                  style={{ width: `${logoSizePx}px`, height: `${logoSizePx}px` }}
+                  className="w-16 h-16 sm:w-20 sm:h-20"
+                  customUrl={logoSettings.rightLogoUrl}
+                />
+              ) : logoSettings.rightLogoType === 'da' ? (
+                <SealDA
+                  style={{ width: `${logoSizePx}px`, height: `${logoSizePx}px` }}
+                  className="w-16 h-16 sm:w-20 sm:h-20"
+                  customUrl={logoSettings.rightLogoUrl}
+                />
+              ) : logoSettings.rightLogoUrl ? (
+                <img
+                  src={logoSettings.rightLogoUrl}
+                  alt="Right Logo"
+                  style={{ width: `${logoSizePx}px`, height: `${logoSizePx}px` }}
+                  className="object-contain rounded-full"
+                  referrerPolicy="no-referrer"
+                />
+              ) : null}
             </div>
           </div>
 

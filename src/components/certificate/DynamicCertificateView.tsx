@@ -386,7 +386,7 @@ export const DynamicCertificateView: React.FC<DynamicCertificateViewProps> = ({
               )}
               {template.header.mottoOrSubtitle && (
                 <p className="text-[10px] italic text-stone-600 font-serif">
-                  "{template.header.mottoOrSubtitle}"
+                  &ldquo;{template.header.mottoOrSubtitle}&rdquo;
                 </p>
               )}
             </div>
